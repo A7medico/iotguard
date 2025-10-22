@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage*
+dist/
+build/
+.ipynb_checkpoints/
+
+# Environments & IDE
+.env
+.env.*
+venv/
+.venv/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs & temp
+*.log
+*.tmp
+*.bak
+logs/
+
+# Project data (generated/runtime)
+data/
+
+# Models (large binaries)
+models/*.joblib
+models/*.pkl
+models/*.bin
+
+# Local configs/secrets
+configs/*.local.yaml
+

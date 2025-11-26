@@ -1,0 +1,474 @@
+======================================================================
+IoTGuard Model Test Results
+======================================================================
+
+Test Date: 2025-11-18T18:43:53.797507
+
+Model Info:
+  Features: 15
+  Threshold: 1.0000
+  Training Data: data/iotguard_training_all_attacks.csv
+
+======================================================================
+SUMMARY
+======================================================================
+
+[ATTACK DATASETS]
+  Total datasets: 32
+  Total samples: 63,252
+  Attacks detected: 63,252
+  Average detection rate: 100.00%
+  Average score: 1.0000
+
+[BENIGN DATASETS]
+  Total datasets: 2
+  Total samples: 2,120
+  False positives: 0
+  Average false positive rate: 0.00%
+  Average score: 0.0000
+
+======================================================================
+DETAILED RESULTS
+======================================================================
+
+[ATTACK DATASETS]
+
+BrowserHijacking.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+CommandInjection.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-ACK_Fragmentation.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-HTTP_Flood-.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-ICMP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-ICMP_Fragmentation.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-PSHACK_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-RSTFINFlood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-SlowLoris.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-SYN_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-SynonymousIP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-TCP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-UDP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DDoS-UDP_Fragmentation.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DictionaryBruteForce.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DNS_Spoofing.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DoS-HTTP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DoS-SYN_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DoS-TCP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+DoS-UDP_Flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Mirai-greeth_flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Mirai-greip_flood.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Mirai-udpplain.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+MITM-ArpSpoofing.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Recon-HostDiscovery.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Recon-OSScan.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Recon-PingSweep.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Recon-PortScan.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+SqlInjection.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+Uploading_Attack.pcap_converted.csv
+  Samples: 1,252
+  Attacks detected: 1,252 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 1252
+  True benign: 0
+  TP: 1252, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+VulnerabilityScan.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+XSS.pcap_converted.csv
+  Samples: 2,000
+  Attacks detected: 2,000 (100.00%)
+  Mean score: 1.0000
+  Score range: [1.0000, 1.0000]
+  True attacks: 2000
+  True benign: 0
+  TP: 2000, FP: 0
+  TN: 0, FN: 0
+  Recall: 100.00%
+  Precision: 100.00%
+  Accuracy: 100.00%
+
+[BENIGN DATASETS]
+
+ciciot_benign_15f.csv
+  Samples: 2,000
+  False positives: 0 (0.00%)
+  Mean score: 0.0000
+  Score range: [0.0000, 0.0000]
+  True benign: 2000
+  TP: 0, FP: 0
+  TN: 2000, FN: 0
+  False positive rate: 0.00%
+  Accuracy: 100.00%
+
+benign_sim_15f.csv
+  Samples: 120
+  False positives: 0 (0.00%)
+  Mean score: 0.0000
+  Score range: [0.0000, 0.0000]
+  True benign: 120
+  TP: 0, FP: 0
+  TN: 120, FN: 0
+  False positive rate: 0.00%
+  Accuracy: 100.00%

@@ -9,23 +9,39 @@
 import json, time, argparse, csv
 from pathlib import Path
 
-FEATURES = ["flows","bytes_total","pkts_total","uniq_src","uniq_dst","syn_ratio","mean_bytes_flow"]
+FEATURES = ["flows","bytes_total","pkts_total","syn_ratio","mean_bytes_flow","ack_ratio","fin_ratio","rst_ratio","http_ratio","tcp_ratio","protocol_diversity","std_bytes","iat_mean"]
 
 def extract(ev):
     # SUPER-simplified mapping; tweak as you like
     src = ev.get("src_ip"); dst = ev.get("dest_ip")
     pkt = int(ev.get("pktcnt", ev.get("packet_count", 1)))
     byt = int(ev.get("bytecnt", ev.get("bytes", 200)))
-    sig = ev.get("alert",{}).get("severity", 1)
     syn = 1.0 if ev.get("tcp",{}).get("flags","") == "S" else 0.1
+    
+    # Fake values for new features
+    ack_ratio = 0.0
+    fin_ratio = 0.0
+    rst_ratio = 0.0
+    http_ratio = 0.0
+    tcp_ratio = 1.0 if "tcp" in ev else 0.0
+    proto_div = 1
+    std_bytes = 0.0
+    iat = 0.0
+    
     return {
         "flows": 1,
         "bytes_total": byt,
         "pkts_total": pkt,
-        "uniq_src": 1,
-        "uniq_dst": 1,
         "syn_ratio": syn,
         "mean_bytes_flow": max(1, byt//max(1,pkt)),
+        "ack_ratio": ack_ratio,
+        "fin_ratio": fin_ratio,
+        "rst_ratio": rst_ratio,
+        "http_ratio": http_ratio,
+        "tcp_ratio": tcp_ratio,
+        "protocol_diversity": proto_div,
+        "std_bytes": std_bytes,
+        "iat_mean": iat
     }
 
 def main():

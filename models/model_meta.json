@@ -1,0 +1,21 @@
+{
+  "threshold": 0.29839060399278966,
+  "features": [
+    "flows",
+    "bytes_total",
+    "pkts_total",
+    "syn_ratio",
+    "mean_bytes_flow",
+    "ack_ratio",
+    "fin_ratio",
+    "rst_ratio",
+    "http_ratio",
+    "tcp_ratio",
+    "protocol_diversity",
+    "std_bytes",
+    "iat_mean"
+  ],
+  "label_positive": 1,
+  "label_negative": 0,
+  "csv_path": "data/iotguard_training_clean.csv"
+}

@@ -12,7 +12,16 @@ EVE_PATH   = DATA / "fake_eve.json"          # pretend Suricata eve.json
 FEAT_CSV   = DATA / "features.csv"
 WINDOW_SEC = 30
 
-FEATURES = ["flows","bytes_total","pkts_total","uniq_src","uniq_dst","syn_ratio","mean_bytes_flow"]
+FEATURES = [
+    # Core features
+    "flows","bytes_total","pkts_total","syn_ratio","mean_bytes_flow",
+    # Flag ratios (3)
+    "ack_ratio","fin_ratio","rst_ratio",
+    # Protocol features (3)
+    "http_ratio","tcp_ratio","protocol_diversity",
+    # Statistical features (2)
+    "std_bytes","iat_mean"
+]
 
 # ring buffer of (ts, src, dst, bytes_total, pkts_total, is_syn)
 buf = deque()
@@ -63,8 +72,13 @@ def compute_features(now_ts: float):
 
     flows = len(buf)
     if flows == 0:
-        return dict(flows=0, bytes_total=0, pkts_total=0,
-                    uniq_src=0, uniq_dst=0, syn_ratio=0.0, mean_bytes_flow=0.0)
+        return dict(
+            flows=0, bytes_total=0, pkts_total=0, uniq_src=0, uniq_dst=0,
+            syn_ratio=0.0, mean_bytes_flow=0.0,
+            ack_ratio=0.0, fin_ratio=0.0, rst_ratio=0.0,
+            http_ratio=0.0, tcp_ratio=0.0, protocol_diversity=0,
+            std_bytes=0.0, iat_mean=0.0
+        )
 
     bytes_total = sum(x["bytes_total"] for x in buf)
     pkts_total  = sum(x["pkts_total"] for x in buf)
@@ -72,15 +86,44 @@ def compute_features(now_ts: float):
     uniq_dst    = len({x["dst"] for x in buf})
     syn_ratio   = sum(x["is_syn"] for x in buf) / flows
     mean_bytes  = bytes_total / flows
+    
+    # Calculate std_bytes (Standard Deviation of flow bytes)
+    if flows > 1:
+        # variance = sum((x - mean)^2) / (n - 1)
+        variance = sum((x["bytes_total"] - mean_bytes) ** 2 for x in buf) / (flows - 1)
+        std_bytes = variance ** 0.5
+    else:
+        std_bytes = 0.0
+
+    # Additional features (estimates for real-time extraction)
+    ack_ratio = 0.0  # Would need flag info from flow
+    fin_ratio = 0.0
+    rst_ratio = 0.0
+    http_ratio = 0.0  # Would need protocol info
+    tcp_ratio = syn_ratio  # Estimate from SYN
+    protocol_diversity = 1  # Default
+    iat_mean = 0.0  # Would calculate from timestamps
 
     return dict(
+        # Core
         flows=flows,
         bytes_total=bytes_total,
         pkts_total=pkts_total,
-        uniq_src=uniq_src,
-        uniq_dst=uniq_dst,
-        syn_ratio=round(syn_ratio, 3),
-        mean_bytes_flow=round(mean_bytes, 3)
+        # uniq_src=uniq_src, # Dropped
+        # uniq_dst=uniq_dst, # Dropped
+        syn_ratio=round(syn_ratio, 6),
+        mean_bytes_flow=round(mean_bytes, 6),
+        # Flag ratios (3)
+        ack_ratio=round(ack_ratio, 6),
+        fin_ratio=round(fin_ratio, 6),
+        rst_ratio=round(rst_ratio, 6),
+        # Protocol features (3)
+        http_ratio=round(http_ratio, 6),
+        tcp_ratio=round(tcp_ratio, 6),
+        protocol_diversity=protocol_diversity,
+        # Statistical features (2)
+        std_bytes=round(std_bytes, 2),
+        iat_mean=round(iat_mean, 6)
     )
 
 def tail_file(path: Path):

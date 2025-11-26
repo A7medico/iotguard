@@ -1,28 +1,58 @@
-# scripts/api_dashboard.py
-# -----------------------------------------------------------------------------
-# IoTGuard Pipeline — API + Dashboard
-#
-# Purpose
-#   - Provide a lightweight REST API for recent events, counts and config, and
-#     serve a single-page dashboard to visualize scores/blocks in real time.
-#
-# Where it sits in the pipeline
-#   decision_loop.py → data/alerts.jsonl → [THIS FILE] → browser UI
-#
-# Inputs
-#   - data/alerts.jsonl: append-only event log from the decision loop.
-#   - configs/model.yaml: read/write of decision parameters via /api/config.
-#
-# Outputs
-#   - HTML dashboard at `/` (Chart.js time series + recent table).
-#   - JSON endpoints for other tools to consume (/api/events, /api/counts,
-#     /api/latest, /api/config, /api/clear*).
-#
-# Operational notes
-#   - Stateless: all state derived from alerts.jsonl; safe to restart anytime.
-#   - Clear endpoints let you reset logs and the decision loop offset for clean
-#     experiments.
-# -----------------------------------------------------------------------------
+"""
+scripts/api_dashboard.py
+-----------------------------------------------------------------------------
+IoTGuard Pipeline — API + Web Dashboard
+
+High‑level pipeline
+    Suricata / simulators
+        →  features.csv  (via suricata_to_features.py / stream_csvs.py)
+        →  decision_loop.py  (scores + policies)
+        →  data/alerts.jsonl (one JSON line per decision)
+        →  [THIS FILE]  (REST API + HTML/JS dashboard)
+        →  Browser UI (charts + tables for operators)
+
+Purpose
+    - Expose a lightweight REST API so other tools (and the dashboard JS) can:
+        * fetch recent events and aggregate counts,
+        * download a CSV export of all alerts,
+        * read and update decision parameters (threshold, grace, window, cooldown, adaptive).
+    - Serve a single‑page dashboard that visualizes, in real time:
+        * scores and adaptive threshold over time (Chart.js),
+        * per‑class counts,
+        * a recent events table including:
+              state, score, window hits,
+              XAI reason (from SHAP),
+              Threat Intel (country flag + tag),
+              action taken (BLOCK / NONE).
+
+Inputs
+    - data/alerts.jsonl:
+        Append‑only event log from decision_loop.py.
+        Each line is a JSON object with keys like:
+          ts, index, score, state, hits_in_window, action,
+          pred_class, reason, effective_threshold, threat.
+    - configs/model.yaml:
+        Configuration file whose `decision` section is read/written via /api/config.
+
+Outputs
+    - HTML dashboard at `/`:
+        A static page with embedded JS that polls the JSON APIs and renders charts/tables.
+    - JSON endpoints:
+        /api/events      – stream of recent events for the UI.
+        /api/counts      – summary counts for the last N minutes.
+        /api/latest      – single latest event (for quick checks).
+        /api/config      – get/set threshold/policy settings.
+        /api/model       – expose model class metadata (for multiclass extensions).
+        /api/clear*      – reset logs and state for clean experiments.
+        /api/download.csv – export all alerts as a CSV file.
+
+Operational notes
+    - Stateless: all state is reconstructed from alerts.jsonl and configs/model.yaml.
+      It is safe to restart the API at any time without losing detection history.
+    - Designed to be fronted by a reverse proxy (e.g. Nginx) in production for HTTPS and auth,
+      but perfectly usable on localhost for demos and experiments.
+-----------------------------------------------------------------------------
+"""
 import os, io, csv, json, time, threading, yaml
 from pathlib import Path
 from datetime import datetime, timezone
@@ -34,6 +64,12 @@ CFG_FILE   = Path("configs/model.yaml")
 
 app = Flask(__name__)
 _lock = threading.Lock()
+
+# Optional HTTP basic auth for the dashboard/API.
+# If you set environment variables IOTGUARD_USER and IOTGUARD_PASS,
+# every request will require those credentials.
+BASIC_USER = os.getenv("IOTGUARD_USER") or None
+BASIC_PASS = os.getenv("IOTGUARD_PASS") or None
 
 # ---------- helpers ----------
 def _iter_alerts():
@@ -68,6 +104,28 @@ def save_cfg(cfg: dict):
         yaml.safe_dump(cfg, f, sort_keys=False)
 
 # ---------- APIs ----------
+@app.before_request
+def _basic_auth():
+    """
+    Enforce simple HTTP Basic Auth when credentials are configured.
+    This is meant as a lightweight protection for the dashboard/API.
+    """
+    if not BASIC_USER or not BASIC_PASS:
+        return  # auth disabled
+
+    # Allow health checks without auth if you add them later
+    path = request.path or "/"
+    if path.startswith("/health"):
+        return
+
+    auth = request.authorization
+    if not auth or not (auth.username == BASIC_USER and auth.password == BASIC_PASS):
+        return Response(
+            "Authentication required",
+            401,
+            {"WWW-Authenticate": 'Basic realm="IoTGuard"'}
+        )
+
 @app.get("/api/latest")
 def api_latest():
     data = read_last_n(1)
@@ -120,26 +178,36 @@ def api_model():
 
 @app.get("/api/config")
 def api_get_config():
+    """
+    Return the current decision parameters used by the scoring loop.
+    Includes fields that the UI may choose to render read-only (e.g. dry_run).
+    """
     cfg = load_cfg()
     decision = cfg.get("decision", {})
-    return jsonify({"ok": True, "decision": {
-        "threshold": float(decision.get("threshold", 0.65)),
-        "grace":     int(decision.get("grace", 3)),
-        "window":    int(decision.get("window", 5)),
-        "cooldown_sec": int(decision.get("cooldown_sec", 30)),
-    }})
+    return jsonify({
+        "ok": True,
+        "decision": {
+            "threshold":     float(decision.get("threshold", 0.65)),
+            "grace":         int(decision.get("grace", 3)),
+            "window":        int(decision.get("window", 5)),
+            "cooldown_sec":  int(decision.get("cooldown_sec", 30)),
+            "use_adaptive":  bool(decision.get("use_adaptive", False)),
+            "dry_run":       bool(decision.get("dry_run", True)),
+        }
+    })
 
 @app.post("/api/config")
 def api_set_config():
     body = request.get_json(silent=True) or {}
     dec   = (body.get("decision") or body)
-    # validate & coerce
+    # validate & coerce (only allow changing a safe subset via UI)
     try:
         new_dec = {
-            "threshold": float(dec.get("threshold", 0.65)),
-            "grace": int(dec.get("grace", 3)),
-            "window": int(dec.get("window", 5)),
+            "threshold":    float(dec.get("threshold", 0.65)),
+            "grace":        int(dec.get("grace", 3)),
+            "window":       int(dec.get("window", 5)),
             "cooldown_sec": int(dec.get("cooldown_sec", 30)),
+            "use_adaptive": bool(dec.get("use_adaptive", False)),
         }
     except Exception:
         return jsonify({"ok": False, "error": "Invalid types"}), 400
@@ -176,9 +244,11 @@ def api_download_csv():
     if not ALERT_LOG.exists():
         abort(404)
     output = io.StringIO()
-    writer = csv.DictWriter(output, fieldnames=["ts","index","score","state","hits_in_window","action","pred_class"])
+    writer = csv.DictWriter(output, fieldnames=["ts","index","score","state","hits_in_window","action","pred_class","reason","threat"])
     writer.writeheader()
     for e in _iter_alerts() or []:
+        t = e.get("threat") or {}
+        t_str = f"{t.get('flag','')} {t.get('country','')} {t.get('threat','')}".strip()
         writer.writerow({
             "ts": e.get("ts"),
             "index": e.get("index"),
@@ -187,6 +257,8 @@ def api_download_csv():
             "hits_in_window": e.get("hits_in_window"),
             "action": e.get("action"),
             "pred_class": e.get("pred_class"),
+            "reason": e.get("reason", ""),
+            "threat": t_str
         })
     output.seek(0)
     return Response(
@@ -258,7 +330,10 @@ def index():
 </head>
 <body>
   <div class="nav">
-    <div class="container"><span class="brand">IoTGuard</span></div>
+  <div class="container">
+      <span class="brand">IoTGuard</span>
+      <span id="mode_badge" class="tag warn" style="margin-left:10px;font-size:11px;">mode</span>
+  </div>
   </div>
   <div class="container hero">
     <h1><span class="grad">IoTGuard — Live Alerts</span></h1>
@@ -277,6 +352,7 @@ def index():
         <div style="font-weight:700;">Controls</div>
         <div class="row" style="gap:6px;margin-left:14px;">
           <label>threshold <input id="ctl_threshold" type="number" step="0.01" min="0" max="1"/></label>
+          <label>adaptive <input id="ctl_adaptive" type="checkbox" style="width:auto;transform:scale(1.2);margin-right:6px;"/></label>
           <label>grace <input id="ctl_grace" type="number" min="1" max="20"/></label>
           <label>window <input id="ctl_window" type="number" min="1" max="50"/></label>
           <label>cooldown <input id="ctl_cool" type="number" min="0" max="3600"/></label>
@@ -309,7 +385,17 @@ def index():
     </div>
     <table>
       <thead>
-        <tr><th>Time (UTC)</th><th>Index</th><th>Score</th><th>State</th><th>Pred</th><th>Window Hits</th><th>Action</th></tr>
+        <tr>
+            <th>Time (UTC)</th>
+            <th>Index</th>
+            <th>Score</th>
+            <th>State</th>
+            <th>Threat Intel</th>
+            <th>Reason (XAI)</th>
+            <th>Pred</th>
+            <th>Window Hits</th>
+            <th>Action</th>
+        </tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
@@ -321,7 +407,7 @@ def index():
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script>
 let lastTs = null;
-let chart, chartData = {labels: [], scores: []};
+let chart, chartData = {labels: [], scores: [], thresholds: []};
 let lastBlockTs = 0;
 let modelMeta = { classes: null, benign_index: null };
 
@@ -341,12 +427,27 @@ function iso(ts){ try{ return new Date(ts*1000).toISOString(); }catch(e){ return
 function tag(text, cls){ return '<span class="tag '+cls+'">'+text+'</span>'; }
 function stateTag(s){ return s==='ATTACK' ? tag('ATTACK','bad') : tag('benign','ok'); }
 function actionTag(a){ return a==='BLOCK' ? tag('BLOCK','warn') : tag('NONE','ok'); }
+function reasonTag(r){
+  if (!r) return '<span style="color:#555">—</span>';
+  // Highlight positive contributions
+  return '<span style="font-size:12px;color:#a78bfa;">' + r + '</span>';
+}
+function threatTag(t){
+  if (!t || (!t.country && !t.threat)) return '<span style="color:#555">—</span>';
+  let html = '';
+  if (t.flag) html += `<span style="font-size:14px;margin-right:4px;">${t.flag}</span>`;
+  if (t.country) html += `<span style="font-size:11px;color:#94a3b8;margin-right:6px;">${t.country}</span>`;
+  if (t.threat) html += `<span class="tag bad" style="font-size:10px;">${t.threat}</span>`;
+  return html;
+}
 function rowHtml(e){
   return '<tr>'
     + '<td>'+iso(e.ts)+'</td>'
     + '<td>'+e.index+'</td>'
     + '<td>'+((e.score ?? 0).toFixed(3))+'</td>'
     + '<td>'+stateTag(e.state)+'</td>'
+    + '<td>'+threatTag(e.threat)+'</td>'
+    + '<td>'+reasonTag(e.reason)+'</td>'
     + '<td>'+(e.pred_class ?? '—')+'</td>'
     + '<td>'+(e.hits_in_window ?? 0)+'</td>'
     + '<td>'+actionTag(e.action)+'</td>'
@@ -397,13 +498,16 @@ async function refreshEvents(){
   for (const e of list){
     chartData.labels.push(iso(e.ts));
     chartData.scores.push(e.score ?? 0);
+    chartData.thresholds.push(e.effective_threshold ?? null);
   }
   if (chartData.labels.length > 100){
     chartData.labels.splice(0, chartData.labels.length-100);
     chartData.scores.splice(0, chartData.scores.length-100);
+    chartData.thresholds.splice(0, chartData.thresholds.length-100);
   }
   chart.data.labels = chartData.labels;
   chart.data.datasets[0].data = chartData.scores;
+  chart.data.datasets[1].data = chartData.thresholds;
   chart.update('none');
 
   // alerts on new BLOCK
@@ -423,9 +527,21 @@ async function loadConfig(){
   const r = await fetch('/api/config'); const j = await r.json();
   const d = j.decision || {};
   document.getElementById('ctl_threshold').value = d.threshold ?? 0.65;
+  document.getElementById('ctl_adaptive').checked = d.use_adaptive ?? false;
   document.getElementById('ctl_grace').value     = d.grace ?? 3;
   document.getElementById('ctl_window').value    = d.window ?? 5;
   document.getElementById('ctl_cool').value      = d.cooldown_sec ?? 30;
+  // Update mode badge based on dry_run (demo vs live)
+  const badge = document.getElementById('mode_badge');
+  if (badge){
+    if (d.dry_run){
+      badge.textContent = 'DEMO MODE (no real blocking)';
+      badge.className = 'tag warn';
+    } else {
+      badge.textContent = 'LIVE MODE (firewall active)';
+      badge.className = 'tag bad';
+    }
+  }
   // fetch model metadata
   try { const m = await (await fetch('/api/model')).json(); modelMeta = (m.model || {}); } catch {}
 }
@@ -434,6 +550,7 @@ async function saveConfig(){
   const body = {
     decision: {
       threshold: parseFloat(document.getElementById('ctl_threshold').value),
+      use_adaptive: document.getElementById('ctl_adaptive').checked,
       grace: parseInt(document.getElementById('ctl_grace').value),
       window: parseInt(document.getElementById('ctl_window').value),
       cooldown_sec: parseInt(document.getElementById('ctl_cool').value),
@@ -464,7 +581,19 @@ function setupChart(){
         label: 'Score',
         data: [],
         borderWidth: 2,
-        pointRadius: 0
+        pointRadius: 0,
+        borderColor: '#3b82f6',
+        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+        fill: true
+      },
+      {
+        label: 'Adaptive Threshold',
+        data: [],
+        borderWidth: 2,
+        pointRadius: 0,
+        borderColor: '#f59e0b',
+        borderDash: [5, 5],
+        fill: false
       }]
     },
     options: {

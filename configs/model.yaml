@@ -10,13 +10,23 @@
 #   - Decision loop hot-reloads values under `decision` at runtime.
 # -----------------------------------------------------------------------------
 features:
+  # Core flow features (5)
   - flows
   - bytes_total
   - pkts_total
-  - uniq_src
-  - uniq_dst
   - syn_ratio
   - mean_bytes_flow
+  # Flag ratios for attack detection (3)
+  - ack_ratio
+  - fin_ratio
+  - rst_ratio
+  # Protocol features (3)
+  - http_ratio
+  - tcp_ratio
+  - protocol_diversity
+  # Statistical features (2)
+  - std_bytes
+  - iat_mean
 
 lgbm:
   n_estimators: 250
@@ -26,7 +36,7 @@ lgbm:
   colsample_bytree: 0.8
   
 decision:
-  threshold: 0.70
+  threshold: 0.85
   grace: 2
   window: 5
   cooldown_sec: 5
@@ -35,10 +45,7 @@ decision:
   # set to false to actually block
   dry_run: true
 
-  # choose one:
-  hook: windows         # or: linux
-  windows_hook: scripts/block_ip.ps1
-  linux_hook: scripts/block_ip.sh
+  # Blocking is handled by scripts/blocker.py (supports Windows netsh, Linux nftables/iptables)
 
 
 

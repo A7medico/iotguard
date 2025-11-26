@@ -1,44 +1,41 @@
-﻿# scripts/decision_loop.py
-# -----------------------------------------------------------------------------
-# IoTGuard Pipeline — Decision Loop
-#
-# Purpose
-#   - Watch a continuously appended features CSV and score each new row with the
-#     current model. Convert scores into decisions and (optionally) blocking
-#     actions. Emit a compact event record for the dashboard and audits.
-#
-# Where it sits in the pipeline
-#   Suricata (eve.json) → tailer/aggregator (features.csv) → [THIS FILE]
-#   → data/alerts.jsonl → API/UI and counters
-#
-# Inputs
-#   - data/features.csv
-#       Schema (numeric): flows, bytes_total, pkts_total, uniq_src, uniq_dst,
-#       syn_ratio, mean_bytes_flow
-#   - models/lightgbm.joblib
-#       Binary or multiclass LightGBM model. If multiclass, a companion file
-#       models/classes.json is read to determine which class index is "benign".
-#   - configs/model.yaml (hot reloaded)
-#       decision.threshold, decision.grace, decision.window, decision.cooldown,
-#       decision.instant_block, decision.dry_run
-#   - data/window_meta.json (optional)
-#       If present, may contain "top_src_ip" from the current Suricata window.
-#
-# Outputs
-#   - data/alerts.jsonl (append-only, log-rotated by size)
-#       One line per scored row with: ts, index, score, state, hits_in_window,
-#       action (BLOCK/NONE)
-#   - data/state.json (idempotent position and debounce state)
-#
-# Operational notes
-#   - Tailing: keeps a stable row offset and only resets when the CSV shrinks
-#     (rotation/truncation). This prevents re-scoring old rows.
-#   - Multiclass: the loop treats "attack score" as 1 − P(benign).
-#   - Blocking: on Windows uses netsh; on Linux tries iptables then ufw.
-#     Controlled by decision.dry_run to avoid changing host firewall in dev.
-#   - Cooldown and grace: avoid flapping and burst noise, only escalate when the
-#     last N windows cross thresholds or when an instant high score appears.
-# -----------------------------------------------------------------------------
+﻿"""
+scripts/decision_loop.py
+-----------------------------------------------------------------------------
+IoTGuard Pipeline — Streaming Scoring & Enforcement Engine
+
+Position in pipeline
+    Suricata / simulators
+        →  features.csv               (13 features per time window)
+        →  [THIS FILE]                (model scoring + policies + blocking)
+        →  alerts.jsonl               (structured events)
+        →  api_dashboard.py / tools   (visualization, exports, metrics)
+
+High‑level responsibilities
+    - Tail data/features.csv and **only score new rows**, preserving offset across restarts.
+    - For each row:
+        * compute P(attack) using the trained LightGBM model,
+        * optionally adjust the threshold using an **adaptive threshold** based on recent scores,
+        * decide benign vs ATTACK and maintain a sliding window of hits,
+        * apply policy (grace, cooldown, instant block) to decide if we should block,
+        * pick an IP to block from window_meta.json (top_src_ip),
+        * enrich the event with:
+              XAI reason (SHAP via explainer.py),
+              Threat Intel (country/flag/reputation via threat_intel.py),
+              effective_threshold and action severity,
+        * append a compact JSON event to alerts.jsonl for the dashboard and audits.
+
+Key inputs
+    - models/lightgbm.joblib      – trained model.
+    - models/model_meta.json      – feature list + default threshold.
+    - configs/model.yaml          – decision.* section (threshold, grace, window, cooldown, adaptive, dry_run).
+    - data/features.csv           – streaming feature windows from suricata_to_features.py or stream_csvs.py.
+    - data/window_meta.json       – per-window context: top_src_ip and light DPI stats (HTTP/DNS/TLS).
+
+Key outputs
+    - data/alerts.jsonl           – one JSON line per scored window (used by api_dashboard and CSV export).
+    - Firewall rules              – via blocker.py when dry_run is False (or simulated when True).
+-----------------------------------------------------------------------------
+"""
 import os, time, json
 from pathlib import Path
 from datetime import datetime
@@ -47,8 +44,13 @@ from joblib import load
 import json as _json
 from colorama import init, Fore, Style
 import yaml
-import platform
-import subprocess
+import sys
+
+# Add scripts directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+from blocker import block_ip as blocker_block_ip
+from explainer import RealTimeExplainer
+from threat_intel import ThreatIntel
 
 init(autoreset=True)
 
@@ -62,10 +64,27 @@ STATE_FILE  = DATA_DIR / "state.json"
 WIN_META    = DATA_DIR / "window_meta.json"   # optional (from suricata_to_features.py)
 
 # ---------- Model / Features ----------
-FEATURES = [
-    "flows","bytes_total","pkts_total",
-    "uniq_src","uniq_dst","syn_ratio","mean_bytes_flow"
-]
+# Load features from model_meta.json if available, else use defaults
+FEATURES = None
+try:
+    meta_path = Path("models/model_meta.json")
+    if meta_path.exists():
+        meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+        FEATURES = meta.get("features")
+except Exception as e:
+    print(Fore.YELLOW + f"⚠️  Could not load model_meta.json: {e}" + Style.RESET_ALL)
+
+if not FEATURES:
+    # Fallback to the 13 core features
+    FEATURES = [
+        "flows","bytes_total","pkts_total","syn_ratio","mean_bytes_flow",
+        "ack_ratio","fin_ratio","rst_ratio",
+        "http_ratio","tcp_ratio","protocol_diversity",
+        "std_bytes","iat_mean"
+    ]
+
+print(Fore.CYAN + f"ℹ️  Using {len(FEATURES)} features: {FEATURES}" + Style.RESET_ALL)
+
 MODEL = load(MODEL_PATH)
 CLASSES = None
 try:
@@ -75,6 +94,16 @@ try:
 except Exception:
     CLASSES = None
 
+# Initialize Explainer
+print(Fore.CYAN + "ℹ️  Initializing RealTimeExplainer..." + Style.RESET_ALL)
+EXPLAINER = RealTimeExplainer(MODEL, FEATURES)
+
+# Initialize Threat Intel
+print(Fore.CYAN + "ℹ️  Initializing ThreatIntel..." + Style.RESET_ALL)
+THREAT_INTEL = ThreatIntel()
+
+import numpy as np
+
 # ---------- Defaults / constants ----------
 DEFAULTS = dict(
     threshold=0.70,
@@ -82,7 +111,11 @@ DEFAULTS = dict(
     window=5,
     cooldown_sec=5,
     instant_block=0.95,
-    dry_run=True                # set False to actually apply firewall blocks
+    dry_run=True,               # set False to actually apply firewall blocks
+    use_adaptive=False,         # enable adaptive thresholding
+    adaptive_window=50,         # how many recent scores to track
+    adaptive_sensitivity=2.0,   # Z-score multiplier (mean + K * std)
+    adaptive_min=0.50           # never drop threshold below this
 )
 LOG_ROTATE_BYTES = 5_000_000
 PRINT_IDLE_SECS  = 5.0
@@ -100,6 +133,10 @@ def load_cfg():
             "cooldown_sec":  int(  dec.get("cooldown_sec",  DEFAULTS["cooldown_sec"])),
             "instant_block": float(dec.get("instant_block", DEFAULTS["instant_block"])),
             "dry_run":       bool( dec.get("dry_run",       DEFAULTS["dry_run"])),
+            "use_adaptive":        bool( dec.get("use_adaptive",        DEFAULTS["use_adaptive"])),
+            "adaptive_window":     int(  dec.get("adaptive_window",     DEFAULTS["adaptive_window"])),
+            "adaptive_sensitivity":float(dec.get("adaptive_sensitivity",DEFAULTS["adaptive_sensitivity"])),
+            "adaptive_min":        float(dec.get("adaptive_min",        DEFAULTS["adaptive_min"])),
         }
         return out, mtime
     except Exception:
@@ -112,9 +149,14 @@ WINDOW       = decision["window"]
 COOLDOWN_SEC = decision["cooldown_sec"]
 INSTANT_BLK  = decision["instant_block"]
 DRY_RUN      = decision["dry_run"]
+USE_ADAPTIVE = decision["use_adaptive"]
+ADAPT_WIN    = decision["adaptive_window"]
+ADAPT_SENS   = decision["adaptive_sensitivity"]
+ADAPT_MIN    = decision["adaptive_min"]
 
 def maybe_reload():
     global decision, cfg_mtime, THRESHOLD, GRACE, WINDOW, COOLDOWN_SEC, INSTANT_BLK, DRY_RUN
+    global USE_ADAPTIVE, ADAPT_WIN, ADAPT_SENS, ADAPT_MIN
     try:
         mtime = CFG_PATH.stat().st_mtime
     except FileNotFoundError:
@@ -127,9 +169,12 @@ def maybe_reload():
         COOLDOWN_SEC = decision["cooldown_sec"]
         INSTANT_BLK  = decision["instant_block"]
         DRY_RUN      = decision["dry_run"]
+        USE_ADAPTIVE = decision["use_adaptive"]
+        ADAPT_WIN    = decision["adaptive_window"]
+        ADAPT_SENS   = decision["adaptive_sensitivity"]
+        ADAPT_MIN    = decision["adaptive_min"]
         print(Fore.CYAN + f"🔁 Reloaded config:"
-              f" thr={THRESHOLD} grace={GRACE} window={WINDOW}"
-              f" cooldown={COOLDOWN_SEC}s instant={INSTANT_BLK} dry_run={DRY_RUN}" + Style.RESET_ALL)
+              f" thr={THRESHOLD} adapt={USE_ADAPTIVE} dry={DRY_RUN}" + Style.RESET_ALL)
 
 # ---------- State ----------
 def load_state():
@@ -156,7 +201,7 @@ def rotate_alerts():
     except Exception as e:
         print(Fore.YELLOW + f"Log rotate warn: {e}" + Style.RESET_ALL)
 
-def log_event(idx, score, state_text, hits, action, pred_class=None):
+def log_event(idx, score, state_text, hits, action, pred_class=None, reason=None, effective_thr=None, threat_info=None):
     evt = {
         "ts": time.time(),
         "index": int(idx),
@@ -165,8 +210,15 @@ def log_event(idx, score, state_text, hits, action, pred_class=None):
         "hits_in_window": int(hits),
         "action": action,
     }
+    if effective_thr is not None:
+        evt["effective_threshold"] = float(effective_thr)
     if pred_class is not None:
         evt["pred_class"] = str(pred_class)
+    if reason:
+        evt["reason"] = str(reason)
+    if threat_info:
+        evt["threat"] = threat_info
+        
     ALERT_LOG.parent.mkdir(parents=True, exist_ok=True)
     with ALERT_LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(evt) + "\n")
@@ -190,62 +242,63 @@ def read_top_src_ip() -> str | None:
     return None
 
 # ---------- Blocker ----------
-class Blocker:
+# Use blocker.py module for better cross-platform support (nftables, etc.)
+def block_ip_wrapper(ip: str, dry_run: bool, severity: str = "hard") -> tuple[bool, str]:
     """
-    Minimal OS-specific block action.
-
-    When used
-      - Called when the decision policy escalates to a BLOCK for the current
-        window. In dry_run mode we log the action but do not change the system.
-
-    Why it exists
-      - Keeps blocking concerns isolated so the decision policy and model
-        evaluation remain platform-agnostic. Can be replaced with more robust
-        backends (nftables sets with TTL, CrowdSec, etc.).
+    Wrapper around blocker.py that respects dry_run mode and severity.
+    Severity: 'soft' (temp), 'hard' (permanent), 'kill' (connection reset)
     """
-    def __init__(self, dry_run: bool):
-        self.os = platform.system().lower()
-        self.dry = dry_run
+    if not ip:
+        return False, "no-ip"
+    if dry_run:
+        return True, f"dry-run-{severity}"
+    
+    # For now, map all to standard block, but log intention
+    # In a real system, you'd call different firewall commands here
+    return blocker_block_ip(ip)
 
-    def block_ip(self, ip: str) -> tuple[bool, str]:
-        if not ip:
-            return False, "no-ip"
-        if self.dry:
-            return True, "dry-run"
+def classify_attack_heuristic(row: pd.Series) -> str:
+    """
+    Infer attack type based on feature values if model is generic binary.
+    """
+    # Extract values (safe get)
+    syn = float(row.get("syn_ratio", 0))
+    rst = float(row.get("rst_ratio", 0))
+    http = float(row.get("http_ratio", 0))
+    bytes_t = float(row.get("bytes_total", 0))
+    pkts = float(row.get("pkts_total", 0))
+    mean_b = float(row.get("mean_bytes_flow", 0))
+    
+    # 1. Web Attacks (SQLi, XSS, Brute Force Web)
+    if http > 0.5:
+        return "Web Attack (HTTP)"
+        
+    # 2. SYN Flood (High SYN, low packet count per flow usually, but high volume)
+    if syn > 0.6:
+        return "DDoS: SYN Flood"
+        
+    # 3. Port Scan (High RST or very small flows)
+    if rst > 0.5:
+        return "Recon: Port Scan (RST)"
+    if pkts < 3 and flows > 20: # Many small flows
+        return "Recon: Port Scan (Stealth)"
 
-        try:
-            if "windows" in self.os:
-                # Windows: netsh advfirewall
-                cmd = ["netsh", "advfirewall", "firewall", "add", "rule",
-                       f"name=IoTGuard_Block_{ip}",
-                       "dir=in", "action=block", f"remoteip={ip}"]
-                out = subprocess.run(cmd, capture_output=True, text=True)
-                ok = (out.returncode == 0)
-                return ok, (out.stdout.strip() or out.stderr.strip())
+    # 4. Volumetric DDoS (UDP/Mirai)
+    # If not TCP/HTTP and massive bytes/pkts
+    if bytes_t > 5_000_000 or pkts > 10_000:
+        return "DDoS: Volumetric (Mirai/UDP)"
+        
+    # 5. Uploading / Exfiltration
+    if mean_b > 5000 and syn < 0.1:
+        return "Exfiltration / Upload"
 
-            else:
-                # Linux: try iptables, fallback to ufw
-                # iptables (requires sudo privileges)
-                cmd = ["sudo", "iptables", "-I", "INPUT", "-s", ip, "-j", "DROP"]
-                out = subprocess.run(cmd, capture_output=True, text=True)
-                if out.returncode == 0:
-                    return True, "iptables"
-
-                # ufw (if iptables failed / not available)
-                cmd = ["sudo", "ufw", "deny", "from", ip]
-                out = subprocess.run(cmd, capture_output=True, text=True)
-                ok = (out.returncode == 0)
-                return ok, (out.stdout.strip() or out.stderr.strip())
-
-        except Exception as e:
-            return False, str(e)
-
-blocker = Blocker(DRY_RUN)
+    return "General Anomaly"
 
 # ---------- Main loop ----------
 print(Fore.GREEN + f"🟢 Decision loop watching {DATA_CSV}" + Style.RESET_ALL)
 
 recent = [0] * WINDOW
+adaptive_history = [] # stores recent scores
 last_block_t = 0.0
 last_idle_print = 0.0
 
@@ -298,6 +351,9 @@ while True:
         print(Fore.YELLOW + f"  Dropped {before - len(batch)} malformed rows" + Style.RESET_ALL)
 
     for idx, row in batch.iterrows():
+        # Fix 'flows' variable access for heuristic
+        flows = float(row.get("flows", 0))
+        
         x = pd.DataFrame([row[FEATURES]])
         proba = MODEL.predict_proba(x)
         pred_label = None
@@ -320,9 +376,45 @@ while True:
                 p = float(MODEL.predict_proba(x)[0,1])
             except Exception:
                 p = float(MODEL.predict(x)[0])
-            pred_label = "attack" if p >= THRESHOLD else "benign"
-        is_attack = p >= THRESHOLD
+        
+        # Heuristic Classification (override pred_label if binary)
+        heuristic_label = None
+        if p >= THRESHOLD: # Only classify if it's suspicious
+             heuristic_label = classify_attack_heuristic(row)
+             if heuristic_label:
+                 pred_label = heuristic_label
+                 
+        # Adaptive Threshold Logic
+        effective_thr = THRESHOLD
+        
+        # update history
+        adaptive_history.append(p)
+        if len(adaptive_history) > ADAPT_WIN:
+            adaptive_history.pop(0)
+            
+        if USE_ADAPTIVE and len(adaptive_history) > 10:
+            # Calculate stats
+            mu = np.mean(adaptive_history)
+            sigma = np.std(adaptive_history)
+            # Dynamic threshold = mean + K * std
+            dyn_thr = mu + (ADAPT_SENS * sigma)
+            
+            # Ensure it doesn't drop too low (safety floor)
+            dyn_thr = max(dyn_thr, ADAPT_MIN)
+            
+            # Effective threshold is dynamic, but never lower than config threshold if that's desired
+            # Or we can let it float. Let's use the stricter of (Dynamic, Config) to be safe?
+            # Actually, adaptive usually implies raising the bar when noise is high.
+            # Let's take the MAX of (ConfigThreshold, DynamicThreshold) so we never become LESS secure than base config.
+            effective_thr = max(THRESHOLD, dyn_thr)
+
+        is_attack = p >= effective_thr
         state_txt = "ATTACK" if is_attack else "benign"
+
+        # Explain high scores (XAI)
+        reason_str = None
+        if is_attack:
+             reason_str = EXPLAINER.explain_row(x)
 
         # rolling window
         recent.append(1 if is_attack else 0)
@@ -335,7 +427,17 @@ while True:
         time_ok   = (now - last_block_t) > COOLDOWN_SEC
         burst_ok  = (hits >= GRACE and time_ok)
         instant   = (p >= INSTANT_BLK) and time_ok
-        should_block = (is_attack and (burst_ok or instant))
+        
+        response_type = "NONE"
+        if is_attack:
+            if p >= 0.98:
+                response_type = "KILL" # Highest severity
+            elif p >= INSTANT_BLK:
+                response_type = "HARD" # Permanent block
+            elif burst_ok:
+                response_type = "SOFT" # Temporary/Standard block
+        
+        should_block = (response_type != "NONE")
 
         # Debug reason (why not blocked)
         debug_reason = None
@@ -343,29 +445,41 @@ while True:
             debug_reason = "benign"
         elif not time_ok:
             debug_reason = f"cooldown {COOLDOWN_SEC}s"
-        elif hits < GRACE and p < INSTANT_BLK:
-            debug_reason = f"below burst/instant (hits={hits}<{GRACE}, score={p:.3f}<{INSTANT_BLK})"
+        elif response_type == "NONE":
+            debug_reason = f"below criteria (hits={hits}<{GRACE}, score={p:.3f}<{INSTANT_BLK})"
 
         # Optional: choose an IP to block (best guess from Suricata window)
         ip_to_block = read_top_src_ip()
+        
+        # Threat Intel Enrichment
+        threat_ctx = None
+        if ip_to_block:
+             threat_ctx = THREAT_INTEL.enrich_ip(ip_to_block)
 
-        # Debounce: don’t spam for the same CSV index
+        # Debounce: don't spam for the same CSV index
         action = "NONE"
         if should_block and state.get("last_block_idx") != int(idx):
-            ok, how = blocker.block_ip(ip_to_block) if ip_to_block else (False, "no-ip")
+            # Pass severity to blocker
+            ok, how = block_ip_wrapper(ip_to_block, DRY_RUN, severity=response_type.lower())
             last_block_t = time.time()
             state["last_block_idx"] = int(idx)
             save_state(state)
-            action = "BLOCK"
-            print(Fore.YELLOW + f"🚫 BLOCK triggered — ip={ip_to_block} via {how}, ok={ok}" + Style.RESET_ALL)
+            action = f"BLOCK-{response_type}"
+            print(Fore.YELLOW + f"🚫 {action} triggered — ip={ip_to_block} via {how}, ok={ok}" + Style.RESET_ALL)
 
         # Console line
         color = Fore.RED if is_attack else Fore.GREEN
-        print(f"{idx}: score={p:.3f} → {color}{state_txt}{Style.RESET_ALL} (hits last{WINDOW}={hits})")
+        thr_str = f"{effective_thr:.3f}" if USE_ADAPTIVE else f"{THRESHOLD:.2f}"
+        print(f"{idx}: score={p:.3f} (thr={thr_str}) → {color}{state_txt}{Style.RESET_ALL} (hits last{WINDOW}={hits})")
         if action == "NONE" and debug_reason:
             print(Style.DIM + f"   └─ no BLOCK: {debug_reason}" + Style.RESET_ALL)
+        
+        if reason_str:
+             print(Fore.MAGENTA + f"   🔍 Why? {reason_str}" + Style.RESET_ALL)
+        if heuristic_label:
+             print(Fore.BLUE + f"   🏷️  Type: {heuristic_label}" + Style.RESET_ALL)
 
         # Event log (dashboard)
-        log_event(idx, p, state_txt, hits, action, pred_label)
+        log_event(idx, p, state_txt, hits, action, pred_label, reason_str, effective_thr, threat_ctx)
 
     time.sleep(0.4)

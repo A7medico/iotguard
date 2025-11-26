@@ -1,23 +1,32 @@
-# scripts/stream_csvs.py
-# -----------------------------------------------------------------------------
-# IoTGuard Pipeline — Multi-CSV Streamer
-#
-# Purpose
-#   - Streams rows from one or more feature CSVs into data/features.csv to
-#     simulate different traffic regimes (e.g., benign, ddos_http) in sequence.
-#
-# Where it sits in the pipeline
-#   [Converted Feature CSVs] → [THIS FILE] → data/features.csv → decision_loop.py
-#
-# Usage
-#   python scripts/stream_csvs.py data/ciciot_benign.csv data/ciciot_ddos_http.csv \
-#          --rate 10 --cycles 5 --rows-per-file 100
-#
-# Operational notes
-#   - Ensures the features header exists in data/features.csv.
-#   - Streams each input file in order per cycle; repeats for --cycles.
-#   - Only writes the seven known feature columns; extra columns are ignored.
-# -----------------------------------------------------------------------------
+"""
+scripts/stream_csvs.py
+-----------------------------------------------------------------------------
+IoTGuard Pipeline — Multi‑CSV Traffic Streamer
+
+Position in pipeline
+    Pre‑computed feature CSVs (from convert_pcap_datasets.py, test_holdout, etc.)
+        →  [THIS FILE]  (timed streaming of rows)
+        →  data/features.csv
+        →  decision_loop.py
+        →  alerts.jsonl / dashboard
+
+High‑level responsibilities
+    - Take one or more existing feature CSVs (already in the 13‑feature schema)
+      and **replay them as if they were live traffic**.
+    - Control the replay tempo with:
+        * --rate          – approximate rows per second,
+        * --cycles        – how many times to loop over the list of input files,
+        * --rows-per-file – optional cap per file per cycle.
+    - Ensure data/features.csv has the correct 13‑feature header and then append
+      only those columns, ignoring any extras in the source files.
+
+Typical use
+    - Drive the full pipeline (decision_loop + api_dashboard) with a realistic
+      sequence like: benign IoT flows, then multiple attack types, repeated.
+    - Demonstrate behavior under mixed conditions without needing Suricata or
+      raw PCAPs at demo time.
+-----------------------------------------------------------------------------
+"""
 import argparse
 import csv
 import time
@@ -25,7 +34,10 @@ from pathlib import Path
 
 FEATURE_COLUMNS = [
     "flows","bytes_total","pkts_total",
-    "uniq_src","uniq_dst","syn_ratio","mean_bytes_flow",
+    "syn_ratio","mean_bytes_flow",
+    "ack_ratio","fin_ratio","rst_ratio",
+    "http_ratio","tcp_ratio","protocol_diversity",
+    "std_bytes","iat_mean"
 ]
 
 OUT_PATH = Path("data/features.csv")

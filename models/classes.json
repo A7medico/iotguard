@@ -1,1 +1,4 @@
-{"classes": ["benign", "ddos_http"], "benign_index": 0}
+{
+  "classes": ["benign", "attack"],
+  "benign_index": 0
+}

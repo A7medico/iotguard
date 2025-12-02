@@ -32,15 +32,28 @@ Key outputs
     - data/window_meta.json    – per-window meta: top_src_ip and protocol mix (http/dns/tls).
 -----------------------------------------------------------------------------
 """
-import json, time
+import json, time, sys, signal
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import pandas as pd
+import yaml
+
+# Add scripts directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+try:
+    from logging_config import get_logger
+    logger = get_logger("suricata_to_features")
+except ImportError:
+    import logging
+    logger = logging.getLogger("suricata_to_features")
+    logging.basicConfig(level=logging.INFO)
 
 IN    = Path("data/suricata/eve.json")
 OUT   = Path("data/features.csv")
 STATE = Path("data/eve_tail_state.json")
 WIN_META = Path("data/window_meta.json")
+FEAT_HEALTH = Path("data/features_health.json")
+DEVICES_CFG = Path("configs/devices.yaml")
 
 WINDOW_SEC = 10
 SLEEP = 0.3
@@ -200,19 +213,51 @@ def file_inode(path: Path):
     except FileNotFoundError:
         return None
 
+_shutdown_requested = False
+
+
+def _handle_shutdown(signum, frame):
+    """Handle graceful shutdown."""
+    global _shutdown_requested
+    _shutdown_requested = True
+    logger.info(f"Shutdown requested (signal={signum})")
+
+
 def run():
+    global _shutdown_requested
+    
+    # Register signal handlers
+    signal.signal(signal.SIGINT, _handle_shutdown)
+    signal.signal(signal.SIGTERM, _handle_shutdown)
+    
     ensure_csv_header()
     state = load_state()
+    
+    # Optional device map for meta enrichment
+    device_map = {}
+    try:
+        if DEVICES_CFG.exists():
+            cfg = yaml.safe_load(DEVICES_CFG.read_text(encoding="utf-8")) or {}
+            device_map = cfg.get("device_map") or {}
+    except Exception as e:
+        logger.warning(f"Could not load device config: {e}")
+        device_map = {}
+    
     win_start = None
     buf = []
+    consecutive_errors = 0
+    max_consecutive_errors = 10
 
+    logger.info(f"Starting to tail {IN}")
     print(f"🟢 Tailing {IN}")
-    while True:
-        id_now = file_inode(IN)
-        if not id_now:
-            time.sleep(0.5); continue
+    while not _shutdown_requested:
+        try:
+            id_now = file_inode(IN)
+            if not id_now:
+                time.sleep(0.5)
+                continue
 
-        with IN.open("r", encoding="utf-8") as f:
+            with IN.open("r", encoding="utf-8") as f:
             rotated = (state["inode"] != id_now[0]) or (state["pos"] > id_now[1])
             if rotated:
                 state["pos"] = 0
@@ -257,8 +302,10 @@ def run():
                         # expose meta for decision loop (top_src_ip + light DPI context)
                         try:
                             top_src = agg.get("_top_src")
+                            device_type = device_map.get(str(top_src)) if top_src else None
                             meta_out = {
                                 "top_src_ip": top_src,
+                                "device_type": device_type,
                                 "http_flows": agg.get("_http_flows", 0),
                                 "dns_flows":  agg.get("_dns_flows", 0),
                                 "tls_flows":  agg.get("_tls_flows", 0),
@@ -266,6 +313,16 @@ def run():
                             }
                             WIN_META.parent.mkdir(parents=True, exist_ok=True)
                             WIN_META.write_text(json.dumps(meta_out), encoding="utf-8")
+                            # basic health heartbeat for feature pipeline
+                            health = {
+                                "ts": time.time(),
+                                "window_start": win_start.isoformat() if win_start else None,
+                                "flows": row.get("flows", 0),
+                                "bytes_total": row.get("bytes_total", 0),
+                                "pkts_total": row.get("pkts_total", 0),
+                            }
+                            FEAT_HEALTH.parent.mkdir(parents=True, exist_ok=True)
+                            FEAT_HEALTH.write_text(json.dumps(health), encoding="utf-8")
                         except Exception:
                             pass
                     # advance window until current ts fits
@@ -274,7 +331,31 @@ def run():
                         win_end = win_start + timedelta(seconds=WINDOW_SEC)
                     buf = [r]
 
+            # Reset error counter on successful iteration
+            consecutive_errors = 0
+            
+        except Exception as e:
+            consecutive_errors += 1
+            logger.error(f"Error in main loop (attempt {consecutive_errors}/{max_consecutive_errors}): {e}")
+            
+            if consecutive_errors >= max_consecutive_errors:
+                logger.critical(f"Too many consecutive errors ({consecutive_errors}), exiting")
+                break
+            
+            time.sleep(1.0)  # Back off on errors
+            continue
+
         time.sleep(SLEEP)
+    
+    # Graceful shutdown
+    logger.info("Suricata feature extractor stopped")
+    save_state(state["pos"], state["inode"])
+    print("🛑 Suricata feature extractor stopped")
+
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except Exception as e:
+        logger.exception(f"Fatal error: {e}")
+        sys.exit(1)

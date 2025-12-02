@@ -1,0 +1,51 @@
+# -----------------------------------------------------------------------------
+# IoTGuard Configuration — LAB PROFILE
+#
+# More permissive / exploratory:
+#   - Lower threshold → more alerts (higher recall, higher FPR).
+#   - dry_run: true  → never actually installs firewall rules.
+#
+# Use via:
+#   IOTGUARD_CONFIG=configs/model_lab.yaml
+# -----------------------------------------------------------------------------
+features:
+  # Core flow features (5)
+  - flows
+  - bytes_total
+  - pkts_total
+  - syn_ratio
+  - mean_bytes_flow
+  # Flag ratios for attack detection (3)
+  - ack_ratio
+  - fin_ratio
+  - rst_ratio
+  # Protocol features (3)
+  - http_ratio
+  - tcp_ratio
+  - protocol_diversity
+  # Statistical features (2)
+  - std_bytes
+  - iat_mean
+
+lgbm:
+  n_estimators: 250
+  num_leaves: 64
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  
+decision:
+  # Lab threshold: favor recall and exploration over false positives.
+  threshold: 0.70
+  grace: 2
+  window: 5
+  cooldown_sec: 3
+  instant_block: 0.95
+
+  # LAB: never actually block, only log.
+  dry_run: true
+
+
+
+
+

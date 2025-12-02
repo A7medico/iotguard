@@ -200,16 +200,23 @@ This is how you created “live” mixed attack/benign scenarios for evaluation 
 
 **Inputs**:
 - `data/features.csv`: continuous feature windows from Suricata (or simulators).
-- `models/lightgbm.joblib`: trained ML model.
+- `models/lightgbm.joblib`: trained supervised ML model.
 - `models/model_meta.json`: feature list and default threshold.
-- `configs/model.yaml`: hot‑reloaded decision parameters (threshold, grace, window, cooldown, adaptive).
+- `models/unsup_isoforest.joblib`: trained unsupervised model (IsolationForest) – optional.
+- `models/unsup_meta.json`: unsupervised feature list and threshold – optional.
+- `configs/model.yaml`: hot‑reloaded decision parameters (threshold, grace, window, cooldown, adaptive, **hybrid mode**).
 - `data/window_meta.json`: per-window meta (`top_src_ip`, HTTP/DNS/TLS flows, etc.).
 
 **Key logic**:
 - Tails `data/features.csv` and keeps an internal **offset** so it only scores new rows.
 - Ensures all 13 required features are present and numeric.
 - For each new row:
-  - Computes `p = P(attack)` using `MODEL.predict_proba`.
+  - Computes `p = P(attack)` using the supervised `MODEL.predict_proba`.
+  - **[NEW]** Optionally computes an **unsupervised anomaly score** using IsolationForest.
+  - **[NEW]** Supports **hybrid mode** (`configs/model.yaml:hybrid.mode`):
+    - `supervised`: only use LightGBM (original behavior).
+    - `unsupervised`: only use IsolationForest anomaly scores.
+    - `hybrid`: flag if **EITHER** model detects an issue (catches both known attacks AND novel anomalies).
   - Optionally applies an **adaptive threshold** based on a moving window of recent scores.
   - Marks the row as `ATTACK` or `benign`.
   - Uses `RealTimeExplainer` (SHAP) to compute a **human-readable reason** (which features pushed the score up).
@@ -221,9 +228,30 @@ This is how you created “live” mixed attack/benign scenarios for evaluation 
   - Optionally calls `blocker.py` (respecting `dry_run`) to apply firewall rules.
   - Enriches events with **ThreatIntel** (country, flag, reputation tag).
   - Writes a compact event to `data/alerts.jsonl`:
-    - `ts, index, score, state, hits_in_window, action, pred_class, reason, effective_threshold, threat`.
+    - `ts, index, score, state, hits_in_window, action, pred_class, reason, effective_threshold, threat, detection_source, unsup_score`.
 
-This script connects the ML model, adaptive policies, and firewall in a robust, streaming loop.
+This script connects the ML models (supervised + unsupervised), adaptive policies, and firewall in a robust, streaming loop.
+
+---
+
+## `train_unsupervised.py`
+
+**Role**: Trains an **unsupervised anomaly detection model** (IsolationForest) for detecting novel/zero-day attacks.
+
+**Key steps**:
+- Loads the training CSV (e.g., `data/iotguard_training_clean.csv`).
+- Uses the same 13 features from `configs/model.yaml`.
+- By default, trains **only on benign rows** (`--train-on benign_only`) so the model learns what "normal" looks like.
+- Computes anomaly scores (higher = more anomalous).
+- If labels are available, tunes a threshold to maximize F1; otherwise uses a high quantile (99%).
+- Saves:
+  - `models/unsup_isoforest.joblib`: the trained IsolationForest.
+  - `models/unsup_meta.json`: features, threshold, algorithm info.
+
+**Why use unsupervised?**
+- Detects **novel attacks** that the supervised model has never seen.
+- Complements supervised detection in **hybrid mode** for best coverage.
+- No need for labeled attack data – learns from benign traffic only.
 
 ---
 
@@ -317,6 +345,8 @@ The decision loop calls into `blocker.py` through a small wrapper that respects 
 - `check_pcap_files.py`: sanity-checks PCAP-derived CSVs (e.g., counts, labels, basic statistics) so you can spot obviously broken files before conversion or training.
 
 These are support modules to keep the main scripts cleaner and more focused.
+
+
 
 
 

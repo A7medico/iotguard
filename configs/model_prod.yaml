@@ -1,0 +1,51 @@
+# -----------------------------------------------------------------------------
+# IoTGuard Configuration — PROD PROFILE
+#
+# Conservative, high-precision settings for low false positives:
+#   - Higher threshold → fewer alerts (slightly lower recall, much lower FPR).
+#   - dry_run: false  → actually installs firewall rules.
+#
+# Use via:
+#   IOTGUARD_CONFIG=configs/model_prod.yaml
+# -----------------------------------------------------------------------------
+features:
+  # Core flow features (5)
+  - flows
+  - bytes_total
+  - pkts_total
+  - syn_ratio
+  - mean_bytes_flow
+  # Flag ratios for attack detection (3)
+  - ack_ratio
+  - fin_ratio
+  - rst_ratio
+  # Protocol features (3)
+  - http_ratio
+  - tcp_ratio
+  - protocol_diversity
+  # Statistical features (2)
+  - std_bytes
+  - iat_mean
+
+lgbm:
+  n_estimators: 250
+  num_leaves: 64
+  learning_rate: 0.05
+  subsample: 0.8
+  colsample_bytree: 0.8
+  
+decision:
+  # Prod threshold: tuned from holdout to get ~99.8% precision and ~0.3% FPR.
+  threshold: 0.90
+  grace: 2
+  window: 5
+  cooldown_sec: 10
+  instant_block: 0.98
+
+  # PROD: actually apply firewall rules.
+  dry_run: false
+
+
+
+
+

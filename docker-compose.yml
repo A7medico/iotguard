@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  iotguard-app:
+    build: .
+    container_name: iotguard-app
+    environment:
+      - IOTGUARD_CONFIG=${IOTGUARD_CONFIG:-configs/model_lab.yaml}
+    volumes:
+      - .:/app
+    ports:
+      - "5001:5001"
+    command: ["python", "scripts/run_all.py"]
+
+  # Optional: Suricata container, if you want to run IDS inside compose.
+  # You still need to mount PCAPs or an interface appropriately.
+  #suricata:
+  #  image: oisf/suricata:latest
+  #  network_mode: host
+  #  volumes:
+  #    - ./data/suricata:/var/log/suricata
+  #  command: ["-c", "/etc/suricata/suricata.yaml", "-i", "eth0"]
+
+
+
+
+

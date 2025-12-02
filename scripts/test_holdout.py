@@ -136,11 +136,13 @@ def main():
     
     y_true = np.array(all_y_true)
     y_pred = np.array(all_y_pred)
-    
+    all_scores = np.array(all_scores)
+
+    # Current Threshold Report
     cm = confusion_matrix(y_true, y_pred)
     tn, fp, fn, tp = cm.ravel()
     
-    print(f"\nConfusion Matrix:")
+    print(f"\nConfusion Matrix (Threshold={threshold:.4f}):")
     print(f"      Pred:0  Pred:1")
     print(f"Act:0 {tn:6d}  {fp:6d}")
     print(f"Act:1 {fn:6d}  {tp:6d}")
@@ -158,6 +160,35 @@ def main():
         print(f"ROC-AUC:                 {auc:.4f}")
     except:
         pass
+
+    # --- Threshold Sensitivity Analysis ---
+    print("\n" + "-" * 60)
+    print("THRESHOLD SENSITIVITY ANALYSIS")
+    print("-" * 60)
+    print(f"{'Threshold':<10} | {'Recall':<10} | {'Precision':<10} | {'FPR':<10} | {'F1-Score':<10}")
+    print("-" * 60)
+
+    for thr in [0.5, 0.6, 0.7, 0.8, 0.85, 0.9, 0.95, 0.98, 0.99]:
+        preds_t = (all_scores >= thr).astype(int)
+        cm_t = confusion_matrix(y_true, preds_t)
+        tn_t, fp_t, fn_t, tp_t = cm_t.ravel()
+        
+        rec_t = tp_t / (tp_t + fn_t) if (tp_t + fn_t) > 0 else 0
+        prec_t = tp_t / (tp_t + fp_t) if (tp_t + fp_t) > 0 else 0
+        fpr_t = fp_t / (tn_t + fp_t) if (tn_t + fp_t) > 0 else 0
+        f1_t = 2 * (prec_t * rec_t) / (prec_t + rec_t) if (prec_t + rec_t) > 0 else 0
+        
+        # Highlight best candidate (e.g. FPR < 1% and High Recall)
+        marker = ""
+        if fpr_t < 0.01 and rec_t > 0.90:
+            marker = "  <-- RECOMMENDED"
+        elif fpr_t < 0.05 and rec_t > 0.95:
+             marker = "  (Good Balance)"
+
+        print(f"{thr:<10.2f} | {rec_t*100:6.2f}%    | {prec_t*100:6.2f}%    | {fpr_t*100:6.2f}%    | {f1_t:.4f}{marker}")
+
+    print("-" * 60)
+
 
 if __name__ == "__main__":
     main()

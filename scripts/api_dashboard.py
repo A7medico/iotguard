@@ -53,14 +53,20 @@ Operational notes
       but perfectly usable on localhost for demos and experiments.
 -----------------------------------------------------------------------------
 """
-import os, io, csv, json, time, threading, yaml
+import os, io, csv, json, time, threading, yaml, sys
 from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request, Response, abort
 
+# Add scripts directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent))
+from logging_config import get_logger
+
+logger = get_logger("api_dashboard")
+
 DATA_DIR   = Path("data")
 ALERT_LOG  = DATA_DIR / "alerts.jsonl"
-CFG_FILE   = Path("configs/model.yaml")
+CFG_FILE   = Path(os.getenv("IOTGUARD_CONFIG") or "configs/model.yaml")
 
 app = Flask(__name__)
 _lock = threading.Lock()
@@ -71,37 +77,102 @@ _lock = threading.Lock()
 BASIC_USER = os.getenv("IOTGUARD_USER") or None
 BASIC_PASS = os.getenv("IOTGUARD_PASS") or None
 
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ("1", "true", "yes", "on")
+
 # ---------- helpers ----------
+# Thread-safe locks for file operations
+_alerts_lock = threading.Lock()
+_config_lock = threading.Lock()
+
+
 def _iter_alerts():
+    """Iterate over alerts with thread-safe file access."""
     if not ALERT_LOG.exists():
         return
-    with ALERT_LOG.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                yield json.loads(line)
-            except Exception:
-                continue
+    
+    with _alerts_lock:
+        try:
+            with ALERT_LOG.open("r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except (IOError, OSError) as e:
+            logger.warning(f"Could not read alerts file: {e}")
+            return
+    
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            yield json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        except Exception as e:
+            logger.debug(f"Error parsing alert line: {e}")
+            continue
+
 
 def read_last_n(n=200):
+    """Read the last N alerts with thread safety."""
     data = list(_iter_alerts() or [])
     return data[-n:]
+
 
 def now_ts(): 
     return time.time()
 
+
 def load_cfg():
-    if not CFG_FILE.exists():
-        return {}
-    with CFG_FILE.open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+    """Load configuration with thread-safe file access."""
+    with _config_lock:
+        if not CFG_FILE.exists():
+            return {}
+        try:
+            with CFG_FILE.open("r", encoding="utf-8") as f:
+                return yaml.safe_load(f) or {}
+        except (IOError, OSError, yaml.YAMLError) as e:
+            logger.error(f"Could not load config: {e}")
+            return {}
+
 
 def save_cfg(cfg: dict):
-    CFG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with CFG_FILE.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(cfg, f, sort_keys=False)
+    """Save configuration with thread-safe file access and atomic write."""
+    with _config_lock:
+        CFG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Write to temp file first, then rename (atomic on most systems)
+        temp_file = CFG_FILE.with_suffix(".yaml.tmp")
+        try:
+            with temp_file.open("w", encoding="utf-8") as f:
+                yaml.safe_dump(cfg, f, sort_keys=False)
+            
+            # Atomic rename
+            temp_file.replace(CFG_FILE)
+            logger.debug("Configuration saved successfully")
+        except Exception as e:
+            logger.error(f"Failed to save config: {e}")
+            # Clean up temp file if it exists
+            if temp_file.exists():
+                temp_file.unlink()
+            raise
+
+
+# Decide when to require auth / allow live config changes.
+_initial = load_cfg()
+_initial_decision = (_initial.get("decision") or {}) if isinstance(_initial, dict) else {}
+_initial_dry_run = bool(_initial_decision.get("dry_run", True))
+
+# By default:
+#   - demo mode (dry_run=True)  → auth optional unless IOTGUARD_REQUIRE_AUTH=1
+#   - live mode (dry_run=False) → auth required unless IOTGUARD_REQUIRE_AUTH=0
+REQUIRE_AUTH = _bool_env("IOTGUARD_REQUIRE_AUTH", default=(not _initial_dry_run))
+
+# In live mode we disable /api/config writes unless explicitly allowed.
+ALLOW_LIVE_CONFIG = _bool_env("IOTGUARD_ALLOW_LIVE_CONFIG", default=False)
 
 # ---------- APIs ----------
 @app.before_request
@@ -110,8 +181,9 @@ def _basic_auth():
     Enforce simple HTTP Basic Auth when credentials are configured.
     This is meant as a lightweight protection for the dashboard/API.
     """
-    if not BASIC_USER or not BASIC_PASS:
-        return  # auth disabled
+    # Decide if this request should be authenticated.
+    if not REQUIRE_AUTH:
+        return
 
     # Allow health checks without auth if you add them later
     path = request.path or "/"
@@ -119,7 +191,9 @@ def _basic_auth():
         return
 
     auth = request.authorization
-    if not auth or not (auth.username == BASIC_USER and auth.password == BASIC_PASS):
+    if not auth or not BASIC_USER or not BASIC_PASS or not (
+        auth.username == BASIC_USER and auth.password == BASIC_PASS
+    ):
         return Response(
             "Authentication required",
             401,
@@ -138,17 +212,29 @@ def api_counts():
     cutoff = now_ts() - (mins * 60)
     total = attacks = blocks = 0
     class_counts = {}
+    block_breakdown = {}
     for evt in _iter_alerts() or []:
         if evt.get("ts", 0) >= cutoff:
             total += 1
             if evt.get("state") == "ATTACK":
                 attacks += 1
-            if evt.get("action") == "BLOCK":
+            # Treat any BLOCK-* severity as a block event
+            action = str(evt.get("action") or "")
+            if action.startswith("BLOCK"):
                 blocks += 1
+                block_breakdown[action] = block_breakdown.get(action, 0) + 1
             c = evt.get("pred_class")
             if c is not None:
                 class_counts[c] = class_counts.get(c, 0) + 1
-    return jsonify({"ok": True, "window_minutes": mins, "total": total, "attacks": attacks, "blocks": blocks, "class_counts": class_counts})
+    return jsonify({
+        "ok": True,
+        "window_minutes": mins,
+        "total": total,
+        "attacks": attacks,
+        "blocks": blocks,
+        "class_counts": class_counts,
+        "block_breakdown": block_breakdown,
+    })
 
 @app.get("/api/events")
 def api_events():
@@ -196,26 +282,200 @@ def api_get_config():
         }
     })
 
+def _validate_config(dec: dict) -> tuple[dict, list[str]]:
+    """
+    Validate and sanitize config values with proper bounds checking.
+    Returns (validated_config, list_of_errors).
+    """
+    errors = []
+    validated = {}
+    
+    # Threshold: must be between 0.0 and 1.0
+    try:
+        thr = float(dec.get("threshold", 0.65))
+        if not (0.0 <= thr <= 1.0):
+            errors.append(f"threshold must be between 0.0 and 1.0, got {thr}")
+        else:
+            validated["threshold"] = round(thr, 4)
+    except (TypeError, ValueError):
+        errors.append("threshold must be a valid number")
+    
+    # Grace: must be non-negative integer, max 100
+    try:
+        grace = int(dec.get("grace", 3))
+        if not (0 <= grace <= 100):
+            errors.append(f"grace must be between 0 and 100, got {grace}")
+        else:
+            validated["grace"] = grace
+    except (TypeError, ValueError):
+        errors.append("grace must be a valid integer")
+    
+    # Window: must be positive integer, max 1000
+    try:
+        window = int(dec.get("window", 5))
+        if not (1 <= window <= 1000):
+            errors.append(f"window must be between 1 and 1000, got {window}")
+        else:
+            validated["window"] = window
+    except (TypeError, ValueError):
+        errors.append("window must be a valid integer")
+    
+    # Cooldown: must be non-negative, max 3600 (1 hour)
+    try:
+        cooldown = int(dec.get("cooldown_sec", 30))
+        if not (0 <= cooldown <= 3600):
+            errors.append(f"cooldown_sec must be between 0 and 3600, got {cooldown}")
+        else:
+            validated["cooldown_sec"] = cooldown
+    except (TypeError, ValueError):
+        errors.append("cooldown_sec must be a valid integer")
+    
+    # use_adaptive: boolean
+    try:
+        validated["use_adaptive"] = bool(dec.get("use_adaptive", False))
+    except (TypeError, ValueError):
+        errors.append("use_adaptive must be a boolean")
+    
+    return validated, errors
+
+
 @app.post("/api/config")
 def api_set_config():
-    body = request.get_json(silent=True) or {}
-    dec   = (body.get("decision") or body)
-    # validate & coerce (only allow changing a safe subset via UI)
-    try:
-        new_dec = {
-            "threshold":    float(dec.get("threshold", 0.65)),
-            "grace":        int(dec.get("grace", 3)),
-            "window":       int(dec.get("window", 5)),
-            "cooldown_sec": int(dec.get("cooldown_sec", 30)),
-            "use_adaptive": bool(dec.get("use_adaptive", False)),
-        }
-    except Exception:
-        return jsonify({"ok": False, "error": "Invalid types"}), 400
-
+    """
+    Update decision parameters with validation.
+    
+    Accepts JSON body with fields:
+      - threshold (float, 0.0-1.0): Detection threshold
+      - grace (int, 0-100): Number of hits before blocking
+      - window (int, 1-1000): Sliding window size
+      - cooldown_sec (int, 0-3600): Cooldown between blocks
+      - use_adaptive (bool): Enable adaptive thresholding
+    
+    Returns 400 if validation fails, 403 if live mode without permission.
+    """
+    # In live mode (dry_run=False) we block config writes unless explicitly enabled.
     cfg = load_cfg()
+    decision = cfg.get("decision", {}) if isinstance(cfg, dict) else {}
+    dry_run = bool(decision.get("dry_run", True))
+    if not dry_run and not ALLOW_LIVE_CONFIG:
+        return jsonify({
+            "ok": False,
+            "error": "Config updates are disabled when dry_run=False. "
+                     "Set IOTGUARD_ALLOW_LIVE_CONFIG=1 to override."
+        }), 403
+
+    body = request.get_json(silent=True) or {}
+    dec = (body.get("decision") or body)
+    
+    # Validate with proper bounds checking
+    new_dec, errors = _validate_config(dec)
+    
+    if errors:
+        return jsonify({
+            "ok": False,
+            "error": "Validation failed",
+            "details": errors
+        }), 400
+
     cfg.setdefault("decision", {}).update(new_dec)
     save_cfg(cfg)
-    return jsonify({"ok": True, "saved": new_dec, "note": "Restart decision loop to apply (or enable hot-reload there)."})
+    return jsonify({
+        "ok": True,
+        "saved": new_dec,
+        "note": "Restart decision loop to apply (or enable hot-reload there)."
+    })
+
+
+@app.get("/health")
+def api_health():
+    """
+    Lightweight health endpoint for monitoring / load balancers / Kubernetes probes.
+    Returns:
+      - System status (ok/degraded)
+      - Model version and metadata
+      - Decision loop health
+      - Feature extractor health
+      - Current mode (demo/live)
+    """
+    health_path = DATA_DIR / "decision_health.json"
+    feat_health_path = DATA_DIR / "features_health.json"
+    model_meta_path = Path("models/model_meta.json")
+    
+    loop_health = None
+    feat_health = None
+    model_info = None
+    
+    # Load decision loop health
+    try:
+        if health_path.exists():
+            loop_health = json.loads(health_path.read_text(encoding="utf-8"))
+    except Exception:
+        loop_health = None
+    
+    # Load feature extractor health
+    try:
+        if feat_health_path.exists():
+            feat_health = json.loads(feat_health_path.read_text(encoding="utf-8"))
+    except Exception:
+        feat_health = None
+    
+    # Load model metadata (version, training info)
+    try:
+        if model_meta_path.exists():
+            meta = json.loads(model_meta_path.read_text(encoding="utf-8"))
+            model_info = {
+                "version": meta.get("model_version", "unknown"),
+                "type": meta.get("model_type", "LightGBM"),
+                "trained_at": meta.get("trained_at"),
+                "roc_auc": meta.get("roc_auc"),
+                "pr_auc": meta.get("pr_auc"),
+                "features_count": len(meta.get("features", [])),
+                "threshold": meta.get("threshold"),
+            }
+    except Exception:
+        model_info = {"version": "unknown", "error": "Could not load model metadata"}
+
+    cfg = load_cfg()
+    decision = cfg.get("decision", {}) if isinstance(cfg, dict) else {}
+    mode = "demo" if bool(decision.get("dry_run", True)) else "live"
+    
+    # Determine overall system status
+    model_loaded = Path("models/lightgbm.joblib").exists()
+    status = "ok" if model_loaded else "degraded"
+    
+    # Check if decision loop is stale (no heartbeat in 60s)
+    if loop_health and loop_health.get("last_ts"):
+        age = now_ts() - loop_health["last_ts"]
+        if age > 60:
+            status = "degraded"
+            loop_health["stale"] = True
+    
+    return jsonify({
+        "status": status,
+        "ok": status == "ok",
+        "mode": mode,
+        "require_auth": REQUIRE_AUTH,
+        "model": model_info,
+        "loop_health": loop_health,
+        "features_health": feat_health,
+        "server_time": now_ts(),
+        "uptime_info": "Use /health/ready for Kubernetes readiness probe"
+    })
+
+
+@app.get("/health/ready")
+def api_health_ready():
+    """Kubernetes-style readiness probe. Returns 200 if model is loaded."""
+    model_exists = Path("models/lightgbm.joblib").exists()
+    if model_exists:
+        return jsonify({"ready": True}), 200
+    return jsonify({"ready": False, "reason": "Model not loaded"}), 503
+
+
+@app.get("/health/live")
+def api_health_live():
+    """Kubernetes-style liveness probe. Always returns 200 if API is responding."""
+    return jsonify({"live": True}), 200
 
 @app.post("/api/clear")
 def api_clear():
@@ -278,54 +538,216 @@ def index():
 <title>IoTGuard — Live Alerts</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <link rel="icon" href="data:,">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg:#0b0f14; --ink:#e6edf3; --muted:#9ca3af; --row:#1f2937;
-    --panel: rgba(17,24,39,0.75);
-    --accent:#7dd3fc; /* sky-300 */
-    --accent2:#a78bfa; /* violet-400 */
-    --good:#8ff2b2; --warn:#f2d28f; --bad:#f28f8f;
+    --bg: #020617;
+    --ink: #e5e7eb;
+    --muted: #9ca3af;
+    --row: #020617;
+    --panel: rgba(15,23,42,0.95);
+    --accent: #38bdf8;
+    --accent2: #a855f7;
+    --good: #4ade80;
+    --warn: #facc15;
+    --bad: #f97373;
   }
+  * { box-sizing: border-box; }
   body {
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial;
-    margin: 0; color:var(--ink);
+    font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    margin: 0;
+    color: var(--ink);
     background:
-      radial-gradient(1200px 600px at 80% -10%, #3b0764 0%, transparent 40%),
-      radial-gradient(800px 500px at -10% 10%, #0ea5e9 0%, transparent 35%),
-      linear-gradient(180deg, #0b0f14 0%, #0b1220 100%);
+      radial-gradient(1200px 600px at 80% -10%, #1e293b 0%, transparent 40%),
+      radial-gradient(800px 500px at -10% 20%, #0ea5e9 0%, transparent 35%),
+      linear-gradient(180deg, #020617 0%, #020617 55%, #020617 100%);
     min-height: 100vh;
   }
-  .nav { position:sticky; top:0; z-index:10; backdrop-filter: blur(6px);
-         background: linear-gradient(180deg, rgba(11,17,26,.7), rgba(11,17,26,.2));
-         border-bottom: 1px solid rgba(51,65,85,.35); padding:10px 20px; }
-  .brand { font-weight:800; letter-spacing:.3px; }
-  .container { max-width:1100px; margin: 0 auto; padding: 18px 20px; }
-  .hero h1 { margin: 8px 0 6px; font-size:38px; line-height:1.1; }
-  .hero .grad { background: linear-gradient(90deg, var(--accent), var(--accent2));
-                -webkit-background-clip:text; background-clip:text; color:transparent; }
-  .sub { color:var(--muted); margin-top:4px; }
+  .nav {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    backdrop-filter: blur(10px);
+    background: linear-gradient(90deg, rgba(15,23,42,.9), rgba(15,23,42,.7));
+    border-bottom: 1px solid rgba(148,163,184,.35);
+    padding: 10px 20px;
+  }
+  .brand {
+    font-weight: 800;
+    letter-spacing: .03em;
+    font-size: 18px;
+  }
+  .container {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 18px 20px;
+  }
+  .hero h1 {
+    margin: 8px 0 6px;
+    font-size: 36px;
+    line-height: 1.1;
+  }
+  .hero .grad {
+    background: linear-gradient(110deg, var(--accent), var(--accent2));
+    -webkit-background-clip:text;
+    background-clip:text;
+    color: transparent;
+  }
+  .sub {
+    color: var(--muted);
+    margin-top: 4px;
+    font-size: 14px;
+  }
 
-  .grid { display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; }
-  .card { background:var(--panel); padding:14px 16px; border-radius:14px;
-          box-shadow: 0 8px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
-          border: 1px solid rgba(148,163,184,.2); }
-  .card:hover { box-shadow: 0 12px 28px rgba(0,0,0,.45); }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0,1fr));
+    gap: 12px;
+  }
+  .card {
+    background: radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%), var(--panel);
+    padding: 14px 16px;
+    border-radius: 16px;
+    box-shadow: 0 18px 45px rgba(0,0,0,.6);
+    border: 1px solid rgba(148,163,184,.2);
+    transition: transform .14s ease-out, box-shadow .14s ease-out, border-color .14s ease-out;
+  }
+  .card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 24px 55px rgba(0,0,0,.75);
+    border-color: rgba(148,163,184,.45);
+  }
 
-  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  table { width:100%; border-collapse:collapse; margin-top:12px; }
-  th, td { padding:10px 12px; border-bottom:1px solid var(--row); font-size:14px; white-space:nowrap; }
-  th { text-align:left; color:var(--muted); font-weight:600; }
-  .tag { padding:2px 8px; border-radius:999px; font-weight:600; font-size:12px; }
-  .ok { background:#0b3d1f; color:var(--good); }
-  .warn { background:#3d2a0b; color:var(--warn); }
-  .bad { background:#3d0b0b; color:var(--bad); }
-  .footer { color:var(--muted); font-size:12px; margin-top:10px; }
-  .btn { background:#0f172a; color:#cbd5e1; border:1px solid #334155; padding:8px 12px; border-radius:10px; cursor:pointer; }
-  .btn:hover { filter:brightness(1.12); border-color:#475569; }
-  input[type=number] { width:90px; background:#0f172a; color:#e6edf3; border:1px solid #334155; border-radius:10px; padding:8px 10px; }
-  .chart-box { height:240px; }
-  .chips { display:flex; gap:8px; flex-wrap:wrap; }
-  .chip { background:rgba(2,6,23,.6); border:1px solid rgba(148,163,184,.25); color:#cbd5e1; padding:6px 10px; border-radius:999px; font-size:12px; }
+  .row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+    border-radius: 12px;
+    overflow: hidden;
+    background: rgba(15,23,42,0.9);
+  }
+  thead {
+    background: linear-gradient(90deg, rgba(15,23,42,0.95), rgba(15,23,42,0.8));
+  }
+  th, td {
+    padding: 9px 11px;
+    border-bottom: 1px solid rgba(30,64,175,0.45);
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  th {
+    text-align: left;
+    color: var(--muted);
+    font-weight: 600;
+  }
+  tbody tr:nth-child(even) {
+    background-color: rgba(15,23,42,0.8);
+  }
+  tbody tr:nth-child(odd) {
+    background-color: rgba(15,23,42,0.6);
+  }
+  tbody tr:hover {
+    background-color: rgba(30,64,175,0.45);
+  }
+
+  .tag {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-weight: 600;
+    font-size: 11px;
+  }
+  .ok   { background: #064e3b; color: var(--good); }
+  .warn { background: #3f2a0a; color: var(--warn); }
+  .bad  { background: #450a0a; color: var(--bad); }
+
+  .footer {
+    color: var(--muted);
+    font-size: 12px;
+    margin-top: 10px;
+  }
+  .btn {
+    background: radial-gradient(circle at 0% 0%, rgba(56,189,248,0.2), transparent 60%), #020617;
+    color: #e5e7eb;
+    border: 1px solid #1f2937;
+    padding: 8px 12px;
+    border-radius: 999px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .btn:hover {
+    filter: brightness(1.1);
+    border-color: #38bdf8;
+  }
+  input[type=number] {
+    width: 90px;
+    background: #020617;
+    color: #e5e7eb;
+    border: 1px solid #1f2937;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  input[type=text] {
+    background: #020617;
+    color: #e5e7eb;
+    border: 1px solid #1f2937;
+    border-radius: 999px;
+    padding: 7px 10px;
+    font-size: 13px;
+  }
+  select {
+    background: #020617;
+    color: #e5e7eb;
+    border: 1px solid #1f2937;
+    border-radius: 999px;
+    padding: 4px 8px;
+    font-size: 13px;
+  }
+  .chart-box { height: 240px; }
+  .chips {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    background: rgba(15,23,42,.9);
+    border: 1px solid rgba(148,163,184,.25);
+    color: #e5e7eb;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+  }
+
+  @media (max-width: 900px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0,1fr));
+    }
+  }
+  @media (max-width: 640px) {
+    .container {
+      padding: 14px 14px;
+    }
+    .hero h1 {
+      font-size: 26px;
+    }
+    .grid {
+      grid-template-columns: minmax(0,1fr);
+    }
+    table {
+      font-size: 12px;
+    }
+    th, td {
+      padding: 7px 8px;
+    }
+  }
 </style>
 </head>
 <body>
@@ -378,10 +800,25 @@ def index():
     <div class="card" style="margin-bottom:12px;">
       <div style="font-weight:700; margin-bottom:6px;">Per-class Counts (last 60m)</div>
       <div id="class_chips" class="chips"></div>
+      <div style="font-weight:700; margin:10px 0 6px;">Block severities (last 60m)</div>
+      <div id="block_chips" class="chips"></div>
     </div>
     <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;">
       <div style="font-weight:700;">Recent Events</div>
+      <div class="row" style="gap:8px;font-size:12px;">
+        <label>state
+          <select id="flt_state" style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:999px;padding:4px 8px;">
+            <option value="all">all</option>
+            <option value="ATTACK">ATTACK</option>
+            <option value="benign">benign</option>
+          </select>
+        </label>
+        <label><input id="flt_blocked" type="checkbox" style="width:auto;transform:scale(1.1);margin-right:4px;"/>only blocked</label>
+        <label>search
+          <input id="flt_text" type="text" placeholder="pred / reason / threat" style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:999px;padding:4px 8px;min-width:180px;"/>
+        </label>
+      </div>
     </div>
     <table>
       <thead>
@@ -410,6 +847,10 @@ let lastTs = null;
 let chart, chartData = {labels: [], scores: [], thresholds: []};
 let lastBlockTs = 0;
 let modelMeta = { classes: null, benign_index: null };
+let allEvents = [];
+let fltState = 'all';
+let fltBlockedOnly = false;
+let fltText = '';
 
 // --- audio alert for BLOCK ---
 const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -426,7 +867,16 @@ function beep() {
 function iso(ts){ try{ return new Date(ts*1000).toISOString(); }catch(e){ return '—'; } }
 function tag(text, cls){ return '<span class="tag '+cls+'">'+text+'</span>'; }
 function stateTag(s){ return s==='ATTACK' ? tag('ATTACK','bad') : tag('benign','ok'); }
-function actionTag(a){ return a==='BLOCK' ? tag('BLOCK','warn') : tag('NONE','ok'); }
+function actionTag(a){
+  if (!a) return tag('NONE','ok');
+  if (!a.startsWith('BLOCK')) return tag('NONE','ok');
+  let text = a;
+  let cls = 'warn';
+  if (a === 'BLOCK-KILL') { text = 'BLOCK KILL'; cls = 'bad'; }
+  else if (a === 'BLOCK-HARD') { text = 'BLOCK HARD'; cls = 'bad'; }
+  else if (a === 'BLOCK-SOFT') { text = 'BLOCK SOFT'; cls = 'warn'; }
+  return tag(text, cls);
+}
 function reasonTag(r){
   if (!r) return '<span style="color:#555">—</span>';
   // Highlight positive contributions
@@ -479,6 +929,45 @@ async function refreshCounts(){
     }
     chips.innerHTML = html || '<span class="chip">No class data</span>';
   }
+  // Block severities
+  const blockChips = document.getElementById('block_chips');
+  if (blockChips) {
+    let html = '';
+    if (j.block_breakdown) {
+      const entries = Object.entries(j.block_breakdown).sort((a,b)=> b[1]-a[1]);
+      for (const [name, cnt] of entries) {
+        html += `<span class="chip">${name}: ${cnt}</span>`;
+      }
+    }
+    blockChips.innerHTML = html || '<span class="chip">No blocks</span>';
+  }
+}
+
+function passesFilters(e){
+  if (fltState !== 'all' && e.state !== fltState) return false;
+  if (fltBlockedOnly && !(e.action && String(e.action).startsWith('BLOCK'))) return false;
+  if (fltText){
+    const t = fltText.toLowerCase();
+    const hay = [
+      e.pred_class || '',
+      e.reason || '',
+      (e.threat && (e.threat.threat || e.threat.country || '')) || ''
+    ].join(' ').toLowerCase();
+    if (!hay.includes(t)) return false;
+  }
+  return true;
+}
+
+function renderTable(){
+  const tbody = document.getElementById('rows');
+  if (!tbody) return;
+  let html = '';
+  const src = allEvents.slice(-200).reverse(); // newest first
+  for (const e of src){
+    if (!passesFilters(e)) continue;
+    html += rowHtml(e);
+  }
+  tbody.innerHTML = html;
 }
 
 async function refreshEvents(){
@@ -488,11 +977,12 @@ async function refreshEvents(){
   const list = j.events || [];
   if (!list.length) return;
 
-  // table prepend
-  const tbody = document.getElementById('rows');
-  let html = tbody.innerHTML;
-  for (const e of list) html = rowHtml(e) + html;
-  tbody.innerHTML = html;
+  // accumulate events and re-render table with filters
+  allEvents = allEvents.concat(list);
+  if (allEvents.length > 500) {
+    allEvents = allEvents.slice(-500);
+  }
+  renderTable();
 
   // chart update (cap 100)
   for (const e of list){
@@ -510,9 +1000,9 @@ async function refreshEvents(){
   chart.data.datasets[1].data = chartData.thresholds;
   chart.update('none');
 
-  // alerts on new BLOCK
+  // alerts on new BLOCK (any BLOCK-*)
   for (const e of list){
-    if (e.action === 'BLOCK' && (e.ts > lastBlockTs)){
+    if (e.action && String(e.action).startsWith('BLOCK') && (e.ts > lastBlockTs)){
       lastBlockTs = e.ts;
       beep();
       document.body.style.boxShadow = 'inset 0 0 0 4px #f2d28f55';
@@ -638,6 +1128,20 @@ document.getElementById('btn_clear_all').onclick = async ()=>{
 
 document.getElementById('btn_save').onclick = saveConfig;
 
+// filter handlers
+document.getElementById('flt_state').onchange = (e)=>{
+  fltState = e.target.value || 'all';
+  renderTable();
+};
+document.getElementById('flt_blocked').onchange = (e)=>{
+  fltBlockedOnly = !!e.target.checked;
+  renderTable();
+};
+document.getElementById('flt_text').oninput = (e)=>{
+  fltText = (e.target.value || '').trim().toLowerCase();
+  renderTable();
+};
+
 // init
 setupChart();
 loadConfig();
@@ -655,4 +1159,6 @@ tick();
     return resp
 
 if __name__ == "__main__":
+    logger.info("Starting IoTGuard API Dashboard on http://127.0.0.1:5001")
+    logger.info(f"Mode: {'DEMO (dry_run)' if _initial_dry_run else 'LIVE'}, Auth required: {REQUIRE_AUTH}")
     app.run(host="127.0.0.1", port=5001, debug=False)

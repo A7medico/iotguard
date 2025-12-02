@@ -82,9 +82,9 @@ models/
 
 ## Next Steps
 
-1. **Investigate benign_sim.csv**: Check if data quality is the issue
-2. **Adjust threshold**: Consider lowering to 0.97 for better balance
-3. **Convert pcap files**: Use conversion scripts for files with wrong schemas
+1. **Investigate benign_sim.csv**: Check if data quality is the issue  
+2. **Adjust threshold**: Consider lowering to 0.97 for better balance  
+3. **Convert pcap files**: Use conversion scripts for files with wrong schemas  
 4. **Monitor performance**: Test on more diverse attack types
 
 ## Commands for Testing
@@ -102,4 +102,5 @@ python scripts/train_supervised.py --csv data/iotguard_training.csv
 # Evaluate on specific dataset
 python scripts/evaluate_on_csv.py data/ciciot_ddos_http.csv
 ```
+
 

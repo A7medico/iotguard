@@ -1,5 +1,5 @@
 {
-  "threshold": 0.29839060399278966,
+  "algorithm": "IsolationForest",
   "features": [
     "flows",
     "bytes_total",
@@ -15,11 +15,10 @@
     "std_bytes",
     "iat_mean"
   ],
-  "label_positive": 1,
-  "label_negative": 0,
+  "threshold": 0.3546821691399286,
+  "contamination": 0.05,
+  "train_on": "benign_only",
   "csv_path": "data/iotguard_training_clean.csv",
-  "model_version": "1.0.0",
-  "trained_at": "2024-11-30T00:00:00Z",
-  "model_type": "LightGBM",
-  "description": "IoTGuard binary classifier for IoT intrusion detection"
+  "score_higher_is_anomalous": true,
+  "fallback_quantile": 0.99
 }

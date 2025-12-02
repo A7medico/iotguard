@@ -10,13 +10,65 @@
 #   - Called by decision logic to enforce a temporary block (or in dry-run just
 #     log the intent). Can be replaced by more advanced mechanisms.
 # -----------------------------------------------------------------------------
-import os, sys, subprocess, shutil
+import os, sys, subprocess, shutil, re
 from typing import Optional
+import ipaddress
 
-def _run(cmd: list[str]) -> tuple[int, str]:
+# Precompiled regex for basic IP validation (fallback)
+_IP_PATTERN = re.compile(
+    r'^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
+    r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+)
+
+
+def validate_ip(ip: str) -> tuple[bool, str]:
+    """
+    Validate an IP address to prevent command injection and invalid input.
+    Returns (is_valid, error_message).
+    """
+    if not ip or not isinstance(ip, str):
+        return False, "IP address is empty or not a string"
+    
+    ip = ip.strip()
+    
+    # Check for dangerous characters that could enable command injection
+    dangerous_chars = [';', '&', '|', '$', '`', '\n', '\r', '\\', '"', "'", '<', '>', '(', ')']
+    for char in dangerous_chars:
+        if char in ip:
+            return False, f"IP contains dangerous character: {repr(char)}"
+    
+    # Try to parse as valid IPv4 or IPv6
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        parsed = ipaddress.ip_address(ip)
+        # Don't block localhost or link-local
+        if parsed.is_loopback:
+            return False, "Cannot block loopback address"
+        if parsed.is_link_local:
+            return False, "Cannot block link-local address"
+        return True, ""
+    except ValueError:
+        pass
+    
+    # Fallback regex check for IPv4
+    if _IP_PATTERN.match(ip):
+        return True, ""
+    
+    return False, f"Invalid IP address format: {ip}"
+
+
+def _run(cmd: list[str], timeout: int = 10) -> tuple[int, str]:
+    """Run a command with timeout protection."""
+    try:
+        p = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            check=False,
+            timeout=timeout
+        )
         return p.returncode, (p.stdout or "") + (p.stderr or "")
+    except subprocess.TimeoutExpired:
+        return 998, f"command timed out after {timeout}s"
     except Exception as e:
         return 997, f"exec error: {e}"
 
@@ -66,8 +118,25 @@ def block_ip_linux(ip: str) -> tuple[bool, str]:
 
 # ---------- Public API ----------
 def block_ip(ip: Optional[str]) -> tuple[bool, str]:
+    """
+    Block an IP address using the appropriate firewall for the OS.
+    
+    Args:
+        ip: The IP address to block
+        
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
     if not ip:
-        return False, "no ip"
+        return False, "no ip provided"
+    
+    # Validate IP before attempting to block
+    valid, error = validate_ip(ip)
+    if not valid:
+        return False, f"validation failed: {error}"
+    
+    ip = ip.strip()
+    
     if os.name == "nt":
         return block_ip_windows(ip)
     # Linux / WSL / macOS (macOS: pfctl not implemented here)

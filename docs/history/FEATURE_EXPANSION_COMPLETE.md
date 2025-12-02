@@ -103,4 +103,3 @@ For real-time extraction from Suricata:
 Some features may be estimates in real-time (e.g., protocol_diversity, iat_mean) but will be accurate in training data from pcap files.
 
 
-

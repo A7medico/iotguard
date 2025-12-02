@@ -17,5 +17,9 @@
   ],
   "label_positive": 1,
   "label_negative": 0,
-  "csv_path": "data/iotguard_training_clean.csv"
+  "csv_path": "data/iotguard_training_clean.csv",
+  "model_version": "1.0.0",
+  "trained_at": "2024-11-30T00:00:00Z",
+  "model_type": "LightGBM",
+  "description": "IoTGuard binary classifier for IoT intrusion detection"
 }

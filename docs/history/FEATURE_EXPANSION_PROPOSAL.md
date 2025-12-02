@@ -78,35 +78,35 @@ If we want even better detection, could add:
 ## Trade-offs
 
 ### Pros of Expanding
-✅ Better detection of specific attack types
-✅ Reduced false positives on edge cases
-✅ Better attack type classification
+✅ Better detection of specific attack types  
+✅ Reduced false positives on edge cases  
+✅ Better attack type classification  
 ✅ More robust against evasion
 
 ### Cons of Expanding
-❌ More complex feature extraction
-❌ Slightly more compute for real-time processing
-❌ Need to update all conversion scripts
+❌ More complex feature extraction  
+❌ Slightly more compute for real-time processing  
+❌ Need to update all conversion scripts  
 ❌ Current 7 features already work very well
 
 ## Recommendation
 
-**Option 1: Expand to 12 features (RECOMMENDED)**
-- Add: ack_ratio, fin_ratio, rst_ratio, protocol_diversity, std_bytes
-- **Best balance** of performance vs complexity
-- Still manageable for real-time processing
+**Option 1: Expand to 12 features (RECOMMENDED)**  
+- Add: ack_ratio, fin_ratio, rst_ratio, protocol_diversity, std_bytes  
+- **Best balance** of performance vs complexity  
+- Still manageable for real-time processing  
 - Significant improvement in attack type detection
 
-**Option 2: Stay at 7 features**
-- Current performance is excellent (99.99%)
-- Simpler to maintain
-- Faster real-time processing
+**Option 2: Stay at 7 features**  
+- Current performance is excellent (99.99%)  
+- Simpler to maintain  
+- Faster real-time processing  
 - **Good if current performance is sufficient**
 
-**Option 3: Expand to 15 features**
-- Maximum detection capability
-- Best for research/comprehensive detection
-- More complex to implement and maintain
+**Option 3: Expand to 15 features**  
+- Maximum detection capability  
+- Best for research/comprehensive detection  
+- More complex to implement and maintain  
 - **Best if you need maximum accuracy**
 
 ## Implementation
@@ -128,6 +128,5 @@ If expanding, need to:
 | **Attack Type Detection** | Good | Better | Best |
 | **Maintenance** | Easy | Medium | Hard |
 | **Recommendation** | ✅ If current is enough | ⭐ **BEST BALANCE** | ✅ If max accuracy needed |
-
 
 

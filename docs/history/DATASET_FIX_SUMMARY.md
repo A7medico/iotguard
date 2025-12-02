@@ -92,10 +92,10 @@
 
 ## Benefits
 
-✅ **All attack types properly formatted** - Ready for training/testing
-✅ **Comprehensive coverage** - 25 different attack types
-✅ **Proper labels** - Attack types extracted from filenames
-✅ **Large dataset** - 4.3M rows for robust training
+✅ **All attack types properly formatted** - Ready for training/testing  
+✅ **Comprehensive coverage** - 25 different attack types  
+✅ **Proper labels** - Attack types extracted from filenames  
+✅ **Large dataset** - 4.3M rows for robust training  
 ✅ **Consistent schema** - All use 7-feature format
 
 ## Statistics
@@ -106,6 +106,5 @@
 - **Attack types**: 25
 - **Benign rows**: 362,481 (8.3%)
 - **Attack rows**: 4,006,548 (91.7%)
-
 
 

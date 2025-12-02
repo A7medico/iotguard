@@ -4,6 +4,7 @@ from pathlib import Path
 from collections import deque, Counter
 from datetime import datetime, timezone
 import pandas as pd
+import yaml
 
 DATA = Path("data")
 DATA.mkdir(parents=True, exist_ok=True)
@@ -12,16 +13,36 @@ EVE_PATH   = DATA / "fake_eve.json"          # pretend Suricata eve.json
 FEAT_CSV   = DATA / "features.csv"
 WINDOW_SEC = 30
 
-FEATURES = [
-    # Core features
-    "flows","bytes_total","pkts_total","syn_ratio","mean_bytes_flow",
-    # Flag ratios (3)
-    "ack_ratio","fin_ratio","rst_ratio",
-    # Protocol features (3)
-    "http_ratio","tcp_ratio","protocol_diversity",
-    # Statistical features (2)
-    "std_bytes","iat_mean"
-]
+
+def _load_feature_list() -> list[str]:
+    """
+    Load the canonical feature order from configs/model.yaml if present,
+    falling back to the built-in 13-feature schema.
+    """
+    cfg_path = Path("configs/model.yaml")
+    try:
+        if cfg_path.exists():
+            cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+            feats = cfg.get("features") or []
+            if isinstance(feats, list) and feats:
+                return [str(f) for f in feats]
+    except Exception:
+        pass
+
+    # Fallback: keep legacy hard-coded list in sync with training/config.
+    return [
+        # Core features
+        "flows","bytes_total","pkts_total","syn_ratio","mean_bytes_flow",
+        # Flag ratios (3)
+        "ack_ratio","fin_ratio","rst_ratio",
+        # Protocol features (3)
+        "http_ratio","tcp_ratio","protocol_diversity",
+        # Statistical features (2)
+        "std_bytes","iat_mean",
+    ]
+
+
+FEATURES = _load_feature_list()
 
 # ring buffer of (ts, src, dst, bytes_total, pkts_total, is_syn)
 buf = deque()
@@ -61,7 +82,9 @@ def ensure_header():
 
 def append_row(row_dict):
     # append as CSV line fast (avoid pandas locks)
-    line = ",".join(str(row_dict[k]) for k in FEATURES) + "\n"
+    # Default missing keys to 0 so we never break if the generator lags behind
+    # a minor schema change.
+    line = ",".join(str(row_dict.get(k, 0)) for k in FEATURES) + "\n"
     with FEAT_CSV.open("a", encoding="utf-8") as f:
         f.write(line)
 
@@ -94,7 +117,7 @@ def compute_features(now_ts: float):
         std_bytes = variance ** 0.5
     else:
         std_bytes = 0.0
-
+    
     # Additional features (estimates for real-time extraction)
     ack_ratio = 0.0  # Would need flag info from flow
     fin_ratio = 0.0

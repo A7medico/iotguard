@@ -13,8 +13,9 @@ Position in pipeline
 
 High‑level responsibilities
     - Load a merged, cleaned CSV of IoT flows (with a `label` column).
-    - Normalize column names and select the final 13 numeric features used by the model
-      (dropping deprecated fields such as `uniq_src` and `uniq_dst`).
+    - Normalize column names and select the final numeric features used by the model.
+      By default this is the `features:` list in configs/model.yaml so training and
+      streaming stay perfectly aligned.
     - Convert labels to **binary**:
           benign → 0
           anything else → 1.
@@ -34,8 +35,11 @@ This script is run offline during experimentation; at runtime the decision loop 
 """
 
 import os, json, argparse
+from pathlib import Path
+from datetime import datetime, timezone
 import numpy as np
 import pandas as pd
+import yaml
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import (
@@ -50,6 +54,24 @@ from joblib import dump
 import lightgbm as lgb
 from lightgbm import LGBMClassifier
 
+
+# ---------- Config / global defaults ----------
+CFG_PATH = Path("configs/model.yaml")
+
+
+def _load_yaml_cfg() -> dict:
+    """Load configs/model.yaml if present; otherwise return {}."""
+    try:
+        if CFG_PATH.exists():
+            return yaml.safe_load(CFG_PATH.read_text(encoding="utf-8")) or {}
+    except Exception:
+        pass
+    return {}
+
+
+_CFG = _load_yaml_cfg()
+_LGBM_CFG = dict(_CFG.get("lgbm") or {})
+_FEATURES_CFG = list(_CFG.get("features") or [])
 
 def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     # LightGBM warns about spaces; normalize once and keep the same order.
@@ -97,18 +119,53 @@ def main():
     ap.add_argument("--csv", required=True, help="Path to merged CSV (features + 'label').")
     ap.add_argument("--test-size", type=float, default=0.2, help="Validation split fraction.")
     ap.add_argument("--random-state", type=int, default=42, help="Random seed.")
-    ap.add_argument("--model-out", default="models/lightgbm.joblib", help="Path to save model.")
-    ap.add_argument("--meta-out", default="models/model_meta.json", help="Path to save meta JSON.")
-    ap.add_argument("--learning-rate", type=float, default=0.05)
-    ap.add_argument("--n-estimators", type=int, default=2000)
-    ap.add_argument("--num-leaves", type=int, default=63)
+    ap.add_argument("--model-out", default=None, help="Path to save model (defaults to config based on type).")
+    ap.add_argument("--meta-out", default=None, help="Path to save meta JSON (defaults to config based on type).")
+    ap.add_argument("--model-type", default="iot", choices=["iot", "it"], help="Model type to train (iot or it).")
+    # Hyperparameter defaults are taken from configs/model.yaml:lgbm when available
+    ap.add_argument(
+        "--learning-rate",
+        type=float,
+        default=float(_LGBM_CFG.get("learning_rate", 0.05)),
+    )
+    ap.add_argument(
+        "--n-estimators",
+        type=int,
+        default=int(_LGBM_CFG.get("n_estimators", 2000)),
+    )
+    ap.add_argument(
+        "--num-leaves",
+        type=int,
+        default=int(_LGBM_CFG.get("num_leaves", 63)),
+    )
     ap.add_argument("--max-depth", type=int, default=-1)
     ap.add_argument("--min-data-in-leaf", type=int, default=50)
-    ap.add_argument("--subsample", type=float, default=0.8)
-    ap.add_argument("--colsample-bytree", type=float, default=0.8)
+    ap.add_argument(
+        "--subsample",
+        type=float,
+        default=float(_LGBM_CFG.get("subsample", 0.8)),
+    )
+    ap.add_argument(
+        "--colsample-bytree",
+        type=float,
+        default=float(_LGBM_CFG.get("colsample_bytree", 0.8)),
+    )
     ap.add_argument("--early-stopping-rounds", type=int, default=200)
     ap.add_argument("--eval-every", type=int, default=200, help="Log eval every N rounds.")
     args = ap.parse_args()
+
+    # Resolve paths based on model type if not provided
+    if not args.model_out or not args.meta_out:
+        models_cfg = _CFG.get("models", {})
+        type_cfg = models_cfg.get(args.model_type, {})
+        
+        if not args.model_out:
+            args.model_out = type_cfg.get("path", "models/lightgbm.joblib")
+            
+        if not args.meta_out:
+            args.meta_out = type_cfg.get("meta", "models/model_meta.json")
+
+    print(f"[*] Training '{args.model_type}' model -> {args.model_out}")
 
     # ---------- Load ----------
     df = pd.read_csv(args.csv)
@@ -117,15 +174,21 @@ def main():
     if "label" not in df.columns:
         raise ValueError("CSV must contain a 'label' column.")
 
-    # Features = all numeric except label
-    feat_cols = [c for c in df.columns if c != "label"]
-    
-    # Drop useless features (low cardinality/importance)
-    drop_cols = ["uniq_src", "uniq_dst"]
-    feat_cols = [c for c in feat_cols if c not in drop_cols]
-    
-    # Filter to numeric only
-    feat_cols = [c for c in feat_cols if pd.api.types.is_numeric_dtype(df[c])]
+    # ---------- Feature selection ----------
+    # Prefer the explicit schema from configs/model.yaml so it matches inference.
+    if _FEATURES_CFG:
+        missing = [c for c in _FEATURES_CFG if c not in df.columns]
+        if missing:
+            raise ValueError(
+                f"Training CSV is missing expected feature columns from configs/model.yaml: {missing}"
+            )
+        feat_cols = [c for c in _FEATURES_CFG if c in df.columns]
+    else:
+        # Fallback: all numeric except label, dropping deprecated fields.
+        feat_cols = [c for c in df.columns if c != "label"]
+        drop_cols = ["uniq_src", "uniq_dst"]
+        feat_cols = [c for c in feat_cols if c not in drop_cols]
+        feat_cols = [c for c in feat_cols if pd.api.types.is_numeric_dtype(df[c])]
 
     X = df[feat_cols].to_numpy(dtype=np.float32)
     y = _to_binary_labels(df["label"])
@@ -189,12 +252,33 @@ def main():
     os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
     dump(clf, args.model_out)
 
+    # Load existing meta to preserve version if it exists, else start at 1.0.0
+    existing_version = "1.0.0"
+    try:
+        if Path(args.meta_out).exists():
+            old_meta = json.loads(Path(args.meta_out).read_text(encoding="utf-8"))
+            if "model_version" in old_meta:
+                # Bump patch version
+                parts = old_meta["model_version"].split(".")
+                parts[-1] = str(int(parts[-1]) + 1)
+                existing_version = ".".join(parts)
+    except Exception:
+        pass
+
     meta = {
         "threshold": best_thr,
         "features": feat_cols,  # preserve exact training order
         "label_positive": 1,
         "label_negative": 0,
-        "csv_path": args.csv
+        "csv_path": args.csv,
+        "model_version": existing_version,
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "model_type": "LightGBM",
+        "roc_auc": round(roc, 4),
+        "pr_auc": round(pr_auc, 4),
+        "train_samples": len(ytr),
+        "val_samples": len(yva),
+        "description": "IoTGuard binary classifier for IoT intrusion detection"
     }
     with open(args.meta_out, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)

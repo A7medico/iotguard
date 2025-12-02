@@ -1,0 +1,18 @@
+# Device Type Mapping
+# Maps IP addresses to device types ('iot' or 'it')
+# Used by decision_loop.py to select the appropriate model.
+
+default_type: "iot"
+
+device_map:
+  # IoT Devices (Cameras, Sensors, Smart Plugs)
+  "192.168.1.50": "iot"
+  "192.168.1.51": "iot"
+  "192.168.1.52": "iot"
+  "192.168.1.10": "iot" # Camera
+  
+  # IT Infrastructure (PCs, Laptops, Servers)
+  "192.168.1.100": "it"
+  "192.168.1.101": "it"
+  "127.0.0.1": "it"  # Localhost is usually a PC/Server
+

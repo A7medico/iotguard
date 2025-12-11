@@ -1,5 +1,5 @@
 {
-  "threshold": 0.75,
+  "threshold": 0.7639460097607758,
   "features": [
     "flows",
     "bytes_total",
@@ -17,13 +17,13 @@
   ],
   "label_positive": 1,
   "label_negative": 0,
-  "csv_path": "data\\iotguard_training_augmented.csv",
+  "csv_path": "data\\it_training_cicids2017_mapped.csv",
   "model_version": "1.0.2",
-  "trained_at": "2025-12-08T12:17:55.861854+00:00",
+  "trained_at": "2025-12-08T13:00:41.831692+00:00",
   "model_type": "LightGBM",
-  "roc_auc": 0.9607,
-  "pr_auc": 0.9708,
-  "train_samples": 2173629,
-  "val_samples": 543408,
+  "roc_auc": 0.9994,
+  "pr_auc": 0.9977,
+  "train_samples": 2264594,
+  "val_samples": 566149,
   "description": "IoTGuard binary classifier for IoT intrusion detection"
 }

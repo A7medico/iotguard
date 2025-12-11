@@ -194,6 +194,33 @@ def main() -> None:
     df = pd.read_csv(args.csv)
     df = _normalize_columns(df)
 
+    # ---------- Robust Input Validation ----------
+    # Check for empty dataset
+    if len(df) == 0:
+        raise ValueError("Empty training dataset. CSV has no data rows.")
+    
+    # Check for minimum sample count
+    MIN_SAMPLES = 50
+    if len(df) < MIN_SAMPLES:
+        print(f"[WARNING] Very small dataset ({len(df)} samples). Consider gathering more data.")
+    
+    # Check for missing values and handle them
+    missing_counts = df.isnull().sum()
+    if missing_counts.any():
+        missing_cols = missing_counts[missing_counts > 0]
+        print(f"[WARNING] Columns with missing values:\n{missing_cols}")
+        df = df.dropna()
+        print(f"   -> After dropping NaN rows: {len(df)} samples remaining")
+    
+    # Check for infinite values
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    inf_mask = np.isinf(df[numeric_cols]).any()
+    if inf_mask.any():
+        inf_cols = inf_mask[inf_mask].index.tolist()
+        print(f"[WARNING] Columns with infinite values: {inf_cols}")
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        print(f"   -> After handling inf values: {len(df)} samples remaining")
+
     # ---------- Feature selection ----------
     feat_cols = _pick_features(df)
     X_all = df[feat_cols].to_numpy(dtype=np.float32)
@@ -219,6 +246,10 @@ def main() -> None:
     else:
         X_train = X_all
         print("[*] Training on all rows (unsupervised).")
+
+    # Additional robustness check: ensure we have enough samples
+    if len(X_train) < 20:
+        print("[WARNING] Very few training samples. IsolationForest may not perform well.")
 
     print(
         f"   Samples (train): {len(X_train)} | Features: {len(feat_cols)} | CSV rows (all): {len(X_all)}"

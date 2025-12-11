@@ -1,13 +1,65 @@
-numpy>=2.0
-pandas>=2.2
-scikit-learn>=1.5
-lightgbm>=4.3
-joblib>=1.4
-flask>=2.3
-pyyaml>=6.0.1
-colorama>=0.4.6
-shap>=0.45
-numba>=0.60
-matplotlib>=3.8
-pytest>=7.4
-requests>=2.31
+# =============================================================================
+# IoTGuard Dependencies
+# =============================================================================
+# This file lists all Python packages required to run IoTGuard.
+# Install with: pip install -r requirements.txt
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Core ML / Data Science
+# -----------------------------------------------------------------------------
+numpy>=2.0              # Array operations, numerical computing
+pandas>=2.2             # DataFrames for feature processing
+scikit-learn>=1.5       # ML utilities, IsolationForest, metrics
+
+# LightGBM - Primary ML model (gradient boosting)
+lightgbm>=4.3           # Fast, distributed gradient boosting
+
+# Model persistence
+joblib>=1.4             # Efficient model serialization
+
+# -----------------------------------------------------------------------------
+# Web Framework
+# -----------------------------------------------------------------------------
+flask>=2.3              # REST API and dashboard server
+
+# -----------------------------------------------------------------------------
+# Configuration & Utilities
+# -----------------------------------------------------------------------------
+pyyaml>=6.0.1           # YAML config file parsing
+colorama>=0.4.6         # Colored terminal output (cross-platform)
+
+# -----------------------------------------------------------------------------
+# Explainability (XAI)
+# -----------------------------------------------------------------------------
+shap>=0.45              # SHAP values for model interpretation
+numba>=0.60             # JIT compilation (SHAP dependency)
+
+# -----------------------------------------------------------------------------
+# Visualization
+# -----------------------------------------------------------------------------
+matplotlib>=3.8         # Charts and plots for analysis
+
+# -----------------------------------------------------------------------------
+# Testing
+# -----------------------------------------------------------------------------
+pytest>=7.4             # Test framework
+
+# -----------------------------------------------------------------------------
+# HTTP / Networking
+# -----------------------------------------------------------------------------
+requests>=2.31          # HTTP client for threat intel APIs
+
+# -----------------------------------------------------------------------------
+# Security / Authentication (NEW)
+# -----------------------------------------------------------------------------
+PyJWT>=2.8              # JWT token generation and validation
+
+# -----------------------------------------------------------------------------
+# Optional Production Dependencies (uncomment as needed)
+# -----------------------------------------------------------------------------
+# gunicorn>=21.0        # Production WSGI server
+# geoip2>=4.7           # Real GeoIP lookups (replace threat_intel simulation)
+# redis>=5.0            # Caching layer for production
+# prometheus-client>=0.17  # Alternative Prometheus client library
+# flask-socketio>=5.3   # WebSocket support for real-time updates

@@ -346,7 +346,268 @@ The decision loop calls into `blocker.py` through a small wrapper that respects 
 
 These are support modules to keep the main scripts cleaner and more focused.
 
+---
 
+## `ensemble.py`
 
+**Role**: Combines supervised (LightGBM) and unsupervised (IsolationForest) models for robust predictions.
 
+**What it does**:
+- Loads both trained models and their metadata.
+- Supports multiple combination strategies:
+  - `weighted`: Weighted average of scores.
+  - `or`: Flag if either model detects an attack (maximum coverage).
+  - `and`: Flag only if both models agree (minimum false positives).
+  - `max`: Use the highest score from either model.
+- Returns:
+  - Combined score, is_attack flag, confidence level, and threshold.
+- Provides `explain_prediction()` for human-readable output.
+
+**Why ensemble?**
+- Supervised models catch **known attack patterns**.
+- Unsupervised models catch **novel/zero-day anomalies**.
+- Together, they provide comprehensive coverage.
+
+---
+
+## `alerting.py`
+
+**Role**: Multi-channel alert system for sending notifications when attacks are detected.
+
+**Supported channels**:
+- **Email**: SMTP-based email alerts.
+- **Slack**: Webhook-based Slack messages with rich formatting.
+- **Telegram**: Bot API for instant mobile notifications.
+
+**Configuration** (via environment variables):
+```bash
+IOTGUARD_ALERTING_ENABLED=true
+IOTGUARD_SLACK_WEBHOOK=https://hooks.slack.com/...
+IOTGUARD_TELEGRAM_BOT_TOKEN=your-bot-token
+IOTGUARD_TELEGRAM_CHAT_ID=your-chat-id
+```
+
+**Features**:
+- Severity-based coloring and emojis.
+- Rate limiting to prevent alert spam.
+- Graceful fallback if channels are not configured.
+
+---
+
+## `auth.py`
+
+**Role**: JWT authentication and rate limiting for API security.
+
+**Features**:
+- **JWT tokens**: Stateless authentication with configurable expiry.
+- **Password hashing**: SHA-256 with salt for secure credential storage.
+- **Rate limiting**: In-memory sliding window rate limiter.
+- **Flask decorators**: `@require_auth` and `@optional_auth` for route protection.
+
+**Configuration**:
+```bash
+IOTGUARD_JWT_SECRET=your-secret-key
+IOTGUARD_JWT_EXPIRY=24  # hours
+IOTGUARD_USER=admin
+IOTGUARD_PASS=your-password
+```
+
+**Usage**:
+```python
+from auth import require_auth
+
+@app.route("/api/v1/protected")
+@require_auth
+def protected():
+    return {"user": g.current_user}
+```
+
+---
+
+## `metrics.py`
+
+**Role**: Prometheus-compatible metrics for production monitoring.
+
+**Metric types implemented**:
+- **Counter**: Cumulative counts (detections, blocks, API requests).
+- **Gauge**: Current values (active connections, model drift).
+- **Histogram**: Distributions (inference latency, score distributions).
+
+**Exposed metrics**:
+- `iotguard_detections_total{severity, attack_type}`
+- `iotguard_blocks_total{success}`
+- `iotguard_inference_seconds{model_type}`
+- `iotguard_score_distribution{model_type}`
+- `iotguard_api_requests_total{endpoint, method, status}`
+- `iotguard_model_drift{model_type}`
+- `iotguard_active_connections`
+
+**Usage**:
+```python
+from metrics import record_detection, get_metrics_text
+
+record_detection("high", "SYN_Flood")
+
+# Expose at /metrics endpoint
+@app.get("/metrics")
+def prometheus_metrics():
+    return Response(get_metrics_text(), mimetype="text/plain")
+```
+
+---
+
+## `device_fingerprinting.py`
+
+**Role**: Automatic classification of devices as IoT or IT based on traffic patterns.
+
+**How it works**:
+- IoT devices typically have:
+  - Lower traffic diversity (fewer unique destinations).
+  - More predictable packet patterns.
+  - Smaller average packet sizes.
+- IT devices typically have:
+  - High traffic diversity.
+  - Larger packets (file transfers, web browsing).
+  - Irregular traffic patterns.
+
+**Usage**:
+```python
+from device_fingerprinting import DeviceFingerprinter
+
+fingerprinter = DeviceFingerprinter()
+device_type, confidence = fingerprinter.classify(features, ip="192.168.1.50")
+# Returns: ("iot", 0.85) or ("it", 0.72)
+```
+
+**Integration**:
+- Used by `decision_loop.py` to select the appropriate specialized model (IoT vs IT).
+- Caches classifications for efficiency.
+
+---
+
+## `model_versioning.py`
+
+**Role**: Track model versions with performance metrics and rollback support.
+
+**Features**:
+- Semantic versioning (major.minor.patch).
+- Automatic version bumping on model save.
+- Performance tracking (accuracy, ROC-AUC, FPR).
+- Model comparison between versions.
+- Rollback to previous versions.
+
+**Usage**:
+```python
+from model_versioning import ModelVersionManager
+
+manager = ModelVersionManager("models")
+
+# Save new version with metrics
+manager.save_version("lightgbm.joblib", metrics={"accuracy": 0.93, "fpr": 0.04})
+
+# List versions
+versions = manager.list_versions("lightgbm.joblib")
+
+# Rollback
+manager.rollback("lightgbm.joblib", version="1.0.2")
+```
+
+**CLI**:
+```bash
+python scripts/model_versioning.py list --model lightgbm.joblib
+python scripts/model_versioning.py rollback --model lightgbm.joblib --version 1.0.2
+python scripts/model_versioning.py report
+```
+
+---
+
+## `logging_config.py`
+
+**Role**: Centralized logging configuration for all IoTGuard scripts.
+
+**Features**:
+- Consistent logging format across all modules.
+- File rotation (5MB per file, 5 backups).
+- Colored console output.
+- JSON logging option for production (`IOTGUARD_LOG_JSON=1`).
+- Audit logger for security events.
+
+**Usage**:
+```python
+from logging_config import get_logger
+
+logger = get_logger(__name__)
+logger.info("Processing started", extra={"rows": 100})
+```
+
+**Configuration**:
+```bash
+IOTGUARD_LOG_LEVEL=DEBUG   # DEBUG, INFO, WARNING, ERROR
+IOTGUARD_LOG_JSON=1        # Enable JSON format
+```
+
+---
+
+## `demo_launcher.py`
+
+**Role**: Convenient entry point for running IoTGuard in demo mode.
+
+**What it does**:
+- Sets up environment configuration automatically.
+- Launches the API dashboard as a subprocess.
+- Displays helpful instructions for users.
+- Handles graceful shutdown on Ctrl+C.
+
+**Usage**:
+```bash
+python scripts/demo_launcher.py
+```
+
+Then open `http://127.0.0.1:5001` in your browser.
+
+---
+
+## `ddos_simulator.py`
+
+**Role**: Simulates various DDoS attack patterns for testing the IDS.
+
+**Supported attack types**:
+- `syn_flood`: TCP SYN flood attack.
+- `udp_flood`: UDP packet flood.
+- `http_flood`: HTTP request flood.
+- `mixed`: Combination of multiple attack types.
+
+**Usage**:
+```bash
+python scripts/ddos_simulator.py \
+    --target 192.168.1.100 \
+    --port 80 \
+    --type syn_flood \
+    --threads 10 \
+    --duration 30
+```
+
+**Important**: This is for educational and testing purposes only. Use only on networks you own or have permission to test.
+
+---
+
+## Test Files (`tests/`)
+
+**Role**: Pytest unit and integration tests for quality assurance.
+
+| Test File | Coverage |
+|-----------|----------|
+| `test_blocker.py` | IP validation, command injection prevention |
+| `test_ensemble.py` | Model predictions, confidence scores |
+| `test_alerting.py` | Multi-channel notifications |
+| `test_device_fingerprinting.py` | IoT/IT device classification |
+| `test_decision_loop_utils.py` | Attack heuristics, adaptive thresholds |
+| `test_train_supervised_utils.py` | Label conversion, threshold selection |
+| `test_end_to_end_smoke.py` | Full pipeline integration |
+
+**Running tests**:
+```bash
+pytest tests/ -v
+pytest tests/ --cov=scripts --cov-report=html
+```
 

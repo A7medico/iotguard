@@ -1,18 +1,67 @@
-# Device Type Mapping
-# Maps IP addresses to device types ('iot' or 'it')
-# Used by decision_loop.py to select the appropriate model.
+# =============================================================================
+# IoTGuard Device Configuration
+# =============================================================================
+# This file maps known IP addresses to device types for multi-model selection.
+# When the decision loop processes traffic, it uses this mapping to select
+# the appropriate ML model (IoT-optimized or IT-optimized).
+#
+# Purpose:
+#   Enable specialized detection models for different network segments.
+#   IoT devices have different traffic patterns than traditional IT equipment.
+#
+# Format:
+#   device_map:
+#     "IP_ADDRESS": "device_type"
+#
+#   Valid device_type values:
+#     - "iot"  : IoT/embedded devices (sensors, cameras, thermostats)
+#     - "it"   : Traditional IT equipment (workstations, servers)
+#
+# Usage in decision_loop.py:
+#   1. Read window_meta.json to get top_src_ip
+#   2. Look up device type: DEVICE_MAP.get(top_src_ip, DEFAULT_TYPE)
+#   3. Select corresponding model: MODELS.get(device_type)
+#
+# Adding New Devices:
+#   device_map:
+#     "192.168.1.50": "iot"    # Smart thermostat
+#     "192.168.1.100": "iot"   # IP camera
+#     "10.0.0.25": "it"        # Developer workstation
+# =============================================================================
 
-default_type: "iot"
+# -----------------------------------------------------------------------------
+# Default Device Type
+# -----------------------------------------------------------------------------
+# When an IP is not found in the device_map, use this type
+# Recommended: "iot" (more conservative detection)
+default_type: iot
 
+# -----------------------------------------------------------------------------
+# Device Mapping
+# -----------------------------------------------------------------------------
+# Map specific IP addresses to their device types
+# This enables model selection based on the traffic source
 device_map:
-  # IoT Devices (Cameras, Sensors, Smart Plugs)
-  "192.168.1.50": "iot"
-  "192.168.1.51": "iot"
-  "192.168.1.52": "iot"
-  "192.168.1.10": "iot" # Camera
+  # Example IoT devices (use IoT-optimized model)
+  # "192.168.1.100": "iot"    # Smart speaker
+  # "192.168.1.101": "iot"    # IoT sensor hub
+  # "192.168.1.102": "iot"    # Smart thermostat
+  # "192.168.1.103": "iot"    # IP security camera
   
-  # IT Infrastructure (PCs, Laptops, Servers)
-  "192.168.1.100": "it"
-  "192.168.1.101": "it"
-  "127.0.0.1": "it"  # Localhost is usually a PC/Server
+  # Example IT devices (use IT-optimized model)
+  # "10.0.0.50": "it"         # Developer workstation
+  # "10.0.0.51": "it"         # Build server
+  # "10.0.0.52": "it"         # Database server
+  
+  # Demo/test entries
+  "192.168.1.100": "iot"
+  "192.168.1.101": "iot"
+  "10.0.0.50": "it"
 
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------
+# - Empty device_map is valid; all traffic uses default_type
+# - IP ranges are NOT supported; each IP must be listed individually
+# - For large networks, consider using subnet-based logic in code instead
+# - This file is hot-reloaded by suricata_to_features.py on change

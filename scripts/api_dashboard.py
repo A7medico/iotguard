@@ -56,11 +56,44 @@ Operational notes
 import os, io, csv, json, time, threading, yaml, sys
 from pathlib import Path
 from datetime import datetime, timezone
-from flask import Flask, jsonify, request, Response, abort
+from flask import Flask, jsonify, request, Response, abort, g
 
 # Add scripts directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent))
 from logging_config import get_logger
+
+# Import new enhancement modules
+try:
+    from metrics import (
+        get_metrics_text, get_metrics_json,
+        record_detection, record_block, record_api_request,
+        record_inference_time, record_score, active_connections
+    )
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+
+try:
+    from auth import (
+        require_auth as jwt_require_auth,
+        authenticate_user, rate_limit,
+        get_token_from_request, validate_token
+    )
+    AUTH_AVAILABLE = True
+except ImportError:
+    AUTH_AVAILABLE = False
+
+try:
+    from ensemble import EnsemblePredictor, get_ensemble
+    ENSEMBLE_AVAILABLE = True
+except ImportError:
+    ENSEMBLE_AVAILABLE = False
+
+try:
+    from alerts import send_threat_alert, get_alert_manager
+    ALERTS_AVAILABLE = True
+except ImportError:
+    ALERTS_AVAILABLE = False
 
 logger = get_logger("api_dashboard")
 
@@ -199,6 +232,160 @@ def _basic_auth():
             401,
             {"WWW-Authenticate": 'Basic realm="IoTGuard"'}
         )
+
+
+# ============================================================================
+# NEW API v1 ENDPOINTS - Enhanced features
+# ============================================================================
+
+@app.get("/metrics")
+def prometheus_metrics():
+    """Prometheus metrics endpoint for monitoring."""
+    if not METRICS_AVAILABLE:
+        return Response("Metrics not available", 501)
+    return Response(get_metrics_text(), mimetype="text/plain")
+
+
+@app.get("/api/v1/metrics")
+def api_v1_metrics():
+    """JSON metrics summary for dashboard."""
+    if not METRICS_AVAILABLE:
+        return jsonify({"error": "Metrics not available"}), 501
+    return jsonify(get_metrics_json())
+
+
+@app.post("/api/v1/login")
+def api_v1_login():
+    """JWT login endpoint - get token with username/password."""
+    if not AUTH_AVAILABLE:
+        return jsonify({"error": "JWT auth not available, install PyJWT"}), 501
+    
+    data = request.get_json() or {}
+    username = data.get("username", "")
+    password = data.get("password", "")
+    
+    success, token, error = authenticate_user(username, password)
+    
+    if success:
+        return jsonify({"ok": True, "token": token})
+    return jsonify({"ok": False, "error": error}), 401
+
+
+@app.get("/api/v1/ensemble")
+def api_v1_ensemble():
+    """Get ensemble model status and configuration."""
+    if not ENSEMBLE_AVAILABLE:
+        return jsonify({"error": "Ensemble not available"}), 501
+    
+    ensemble = get_ensemble()
+    return jsonify({
+        "ok": True,
+        "strategy": ensemble.strategy,
+        "supervised_weight": ensemble.sup_weight,
+        "unsupervised_weight": ensemble.unsup_weight,
+        "supervised_threshold": ensemble.supervised_threshold,
+        "unsupervised_threshold": ensemble.unsupervised_threshold,
+        "supervised_loaded": ensemble.supervised_model is not None,
+        "unsupervised_loaded": ensemble.unsupervised_model is not None,
+    })
+
+
+@app.post("/api/v1/predict")
+def api_v1_predict():
+    """Make ensemble prediction on provided features."""
+    if not ENSEMBLE_AVAILABLE:
+        return jsonify({"error": "Ensemble not available"}), 501
+    
+    data = request.get_json() or {}
+    features = data.get("features")
+    
+    if not features:
+        return jsonify({"error": "Missing 'features' array"}), 400
+    
+    try:
+        import numpy as np
+        X = np.array(features, dtype=np.float32)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+        
+        ensemble = get_ensemble()
+        
+        if METRICS_AVAILABLE:
+            with record_inference_time("ensemble"):
+                result = ensemble.predict(X)
+        else:
+            result = ensemble.predict(X)
+        
+        return jsonify({"ok": True, "prediction": result})
+    except Exception as e:
+        logger.error(f"Ensemble prediction error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.post("/api/v1/test-alert")
+def api_v1_test_alert():
+    """Send a test alert through all configured channels."""
+    if not ALERTS_AVAILABLE:
+        return jsonify({"error": "Alerts not available"}), 501
+    
+    manager = get_alert_manager()
+    results = manager.test_channels()
+    
+    return jsonify({
+        "ok": True,
+        "channels": {
+            "email_enabled": manager.email_enabled,
+            "slack_enabled": manager.slack_enabled,
+        },
+        "results": results
+    })
+
+
+@app.get("/api/v1/alerts/config")
+def api_v1_alerts_config():
+    """Get alert configuration status."""
+    if not ALERTS_AVAILABLE:
+        return jsonify({"error": "Alerts not available"}), 501
+    
+    manager = get_alert_manager()
+    return jsonify({
+        "ok": True,
+        "email_enabled": manager.email_enabled,
+        "slack_enabled": manager.slack_enabled,
+        "min_severity": manager.min_severity,
+    })
+
+
+# Enhanced health endpoints
+@app.get("/health/live")
+def health_live():
+    """Kubernetes liveness probe."""
+    return jsonify({"status": "ok", "timestamp": now_ts()})
+
+
+@app.get("/health/ready")
+def health_ready():
+    """Kubernetes readiness probe - checks if models are loaded."""
+    ready = True
+    details = {}
+    
+    if ENSEMBLE_AVAILABLE:
+        ensemble = get_ensemble()
+        details["supervised_model"] = ensemble.supervised_model is not None
+        details["unsupervised_model"] = ensemble.unsupervised_model is not None
+        ready = details["supervised_model"]  # At least supervised should be loaded
+    
+    if ALERTS_AVAILABLE:
+        details["alerts_configured"] = True
+    
+    status_code = 200 if ready else 503
+    return jsonify({"status": "ready" if ready else "not_ready", "details": details}), status_code
+
+
+# ============================================================================
+# EXISTING API ENDPOINTS (unchanged)
+# ============================================================================
+
 
 @app.get("/api/latest")
 def api_latest():
@@ -462,20 +649,6 @@ def api_health():
         "uptime_info": "Use /health/ready for Kubernetes readiness probe"
     })
 
-
-@app.get("/health/ready")
-def api_health_ready():
-    """Kubernetes-style readiness probe. Returns 200 if model is loaded."""
-    model_exists = Path("models/lightgbm.joblib").exists()
-    if model_exists:
-        return jsonify({"ready": True}), 200
-    return jsonify({"ready": False, "reason": "Model not loaded"}), 503
-
-
-@app.get("/health/live")
-def api_health_live():
-    """Kubernetes-style liveness probe. Always returns 200 if API is responding."""
-    return jsonify({"live": True}), 200
 
 @app.post("/api/clear")
 def api_clear():
@@ -1105,8 +1278,10 @@ document.getElementById('btn_clear').onclick = async ()=>{
   const r = await fetch('/api/clear', {method:'POST'});
   const j = await r.json();
   if (j.ok){
+    allEvents = [];
+    lastTs = 0;
     document.getElementById('rows').innerHTML='';
-    chartData.labels = []; chartData.scores = []; chart.update();
+    chartData.labels = []; chartData.scores = []; chartData.thresholds = []; chart.update();
     toast('Alerts cleared');
   } else {
     toast('Error clearing alerts');
@@ -1118,8 +1293,10 @@ document.getElementById('btn_clear_all').onclick = async ()=>{
   const r = await fetch('/api/clear_all', {method:'POST'});
   const j = await r.json();
   if (j.ok){
+    allEvents = [];
+    lastTs = 0;
     document.getElementById('rows').innerHTML='';
-    chartData.labels = []; chartData.scores = []; chart.update();
+    chartData.labels = []; chartData.scores = []; chartData.thresholds = []; chart.update();
     toast('Alerts + state cleared');
   } else {
     toast('Error clearing all');
@@ -1159,6 +1336,9 @@ tick();
     return resp
 
 if __name__ == "__main__":
-    logger.info("Starting IoTGuard API Dashboard on http://127.0.0.1:5001")
+    host = os.environ.get("IOTGUARD_HOST", "0.0.0.0")
+    port = int(os.environ.get("IOTGUARD_PORT", "5001"))
+    logger.info(f"Starting IoTGuard API Dashboard on http://{host}:{port}")
     logger.info(f"Mode: {'DEMO (dry_run)' if _initial_dry_run else 'LIVE'}, Auth required: {REQUIRE_AUTH}")
-    app.run(host="127.0.0.1", port=5001, debug=False)
+    app.run(host=host, port=port, debug=False)
+

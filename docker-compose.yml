@@ -1,27 +1,71 @@
+# =============================================================================
+# IoTGuard Docker Compose Configuration
+# =============================================================================
+# Full-stack deployment with all IoTGuard components
+#
+# Usage:
+#   docker-compose up -d           # Start all services
+#   docker-compose logs -f         # View logs
+#   docker-compose down            # Stop all services
+#
+# Access:
+#   Dashboard: http://localhost:5001
+# =============================================================================
+
 version: "3.9"
 
 services:
+  # ---------------------------------------------------------------------------
+  # IoTGuard Main Application
+  # ---------------------------------------------------------------------------
+  # Runs all components: dashboard, decision loop, feature extractor
   iotguard-app:
     build: .
     container_name: iotguard-app
     environment:
-      - IOTGUARD_CONFIG=${IOTGUARD_CONFIG:-configs/model_lab.yaml}
+      - IOTGUARD_CONFIG=${IOTGUARD_CONFIG:-configs/model.yaml}
+      - IOTGUARD_ENV=${IOTGUARD_ENV:-iot}
+      - IOTGUARD_LOG_LEVEL=${IOTGUARD_LOG_LEVEL:-INFO}
+      # Alerting (optional)
+      - IOTGUARD_ALERTING_ENABLED=${IOTGUARD_ALERTING_ENABLED:-false}
+      - IOTGUARD_SLACK_WEBHOOK=${IOTGUARD_SLACK_WEBHOOK:-}
+      - IOTGUARD_TELEGRAM_TOKEN=${IOTGUARD_TELEGRAM_TOKEN:-}
+      - IOTGUARD_TELEGRAM_CHAT_ID=${IOTGUARD_TELEGRAM_CHAT_ID:-}
     volumes:
-      - .:/app
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./models:/app/models:ro
+      - ./configs:/app/configs:ro
     ports:
       - "5001:5001"
-    command: ["python", "scripts/run_all.py"]
+    command: [ "python", "scripts/api_dashboard.py" ]
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5001/health/live')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+    networks:
+      - iotguard-net
+  # ---------------------------------------------------------------------------
+  # Suricata IDS (Optional)
+  # ---------------------------------------------------------------------------
+  # Uncomment to run Suricata in container mode
+  # suricata:
+  #   image: oisf/suricata:latest
+  #   container_name: iotguard-suricata
+  #   network_mode: host
+  #   volumes:
+  #     - ./data/suricata:/var/log/suricata
+  #     - ./configs/suricata.yaml:/etc/suricata/suricata.yaml:ro
+  #   command: ["-c", "/etc/suricata/suricata.yaml", "-i", "eth0"]
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - NET_RAW
+  #   restart: unless-stopped
 
-  # Optional: Suricata container, if you want to run IDS inside compose.
-  # You still need to mount PCAPs or an interface appropriately.
-  #suricata:
-  #  image: oisf/suricata:latest
-  #  network_mode: host
-  #  volumes:
-  #    - ./data/suricata:/var/log/suricata
-  #  command: ["-c", "/etc/suricata/suricata.yaml", "-i", "eth0"]
-
-
-
-
-
+networks:
+  iotguard-net:
+    driver: bridge
+    name: iotguard-network

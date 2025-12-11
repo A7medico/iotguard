@@ -258,78 +258,79 @@ def run():
                 continue
 
             with IN.open("r", encoding="utf-8") as f:
-            rotated = (state["inode"] != id_now[0]) or (state["pos"] > id_now[1])
-            if rotated:
-                state["pos"] = 0
-                state["inode"] = id_now[0]
-                # reset in-memory windowing on rotation
-                win_start = None
-                buf = []
+                # Check if file was rotated (inode changed or file truncated)
+                rotated = (state["inode"] != id_now[0]) or (state["pos"] > id_now[1])
+                if rotated:
+                    state["pos"] = 0
+                    state["inode"] = id_now[0]
+                    # reset in-memory windowing on rotation
+                    win_start = None
+                    buf = []
 
-            f.seek(state["pos"])
+                f.seek(state["pos"])
 
-            while True:
-                line = f.readline()
-                if not line:
-                    # EOF
-                    state["pos"] = f.tell()
-                    save_state(state["pos"], state["inode"])
-                    break
+                while True:
+                    line = f.readline()
+                    if not line:
+                        # EOF - save state and break
+                        state["pos"] = f.tell()
+                        save_state(state["pos"], state["inode"])
+                        break
 
-                try:
-                    e = json.loads(line)
-                except Exception:
-                    continue
+                    try:
+                        e = json.loads(line)
+                    except Exception:
+                        continue
 
-                r = to_row(e)
-                if not r: 
-                    continue
+                    r = to_row(e)
+                    if not r: 
+                        continue
 
-                ts = r["ts"]
-                if win_start is None:
-                    win_start = ts
-                win_end = win_start + timedelta(seconds=WINDOW_SEC)
+                    ts = r["ts"]
+                    if win_start is None:
+                        win_start = ts
+                    win_end = win_start + timedelta(seconds=WINDOW_SEC)
 
-                if ts < win_end:
-                    buf.append(r)
-                else:
-                    # flush current window
-                    agg = aggregate(buf)
-                    if agg:
-                        # write features row
-                        row = {k: agg[k] for k in FEATURE_HEADER}
-                        pd.DataFrame([row]).to_csv(OUT, mode="a", header=False, index=False)
-                        # expose meta for decision loop (top_src_ip + light DPI context)
-                        try:
-                            top_src = agg.get("_top_src")
-                            device_type = device_map.get(str(top_src)) if top_src else None
-                            meta_out = {
-                                "top_src_ip": top_src,
-                                "device_type": device_type,
-                                "http_flows": agg.get("_http_flows", 0),
-                                "dns_flows":  agg.get("_dns_flows", 0),
-                                "tls_flows":  agg.get("_tls_flows", 0),
-                                "app_protos": agg.get("_app_protos", []),
-                            }
-                            WIN_META.parent.mkdir(parents=True, exist_ok=True)
-                            WIN_META.write_text(json.dumps(meta_out), encoding="utf-8")
-                            # basic health heartbeat for feature pipeline
-                            health = {
-                                "ts": time.time(),
-                                "window_start": win_start.isoformat() if win_start else None,
-                                "flows": row.get("flows", 0),
-                                "bytes_total": row.get("bytes_total", 0),
-                                "pkts_total": row.get("pkts_total", 0),
-                            }
-                            FEAT_HEALTH.parent.mkdir(parents=True, exist_ok=True)
-                            FEAT_HEALTH.write_text(json.dumps(health), encoding="utf-8")
-                        except Exception:
-                            pass
-                    # advance window until current ts fits
-                    while ts >= win_end:
-                        win_start += timedelta(seconds=WINDOW_SEC)
-                        win_end = win_start + timedelta(seconds=WINDOW_SEC)
-                    buf = [r]
+                    if ts < win_end:
+                        buf.append(r)
+                    else:
+                        # flush current window
+                        agg = aggregate(buf)
+                        if agg:
+                            # write features row
+                            row = {k: agg[k] for k in FEATURE_HEADER}
+                            pd.DataFrame([row]).to_csv(OUT, mode="a", header=False, index=False)
+                            # expose meta for decision loop (top_src_ip + light DPI context)
+                            try:
+                                top_src = agg.get("_top_src")
+                                device_type = device_map.get(str(top_src)) if top_src else None
+                                meta_out = {
+                                    "top_src_ip": top_src,
+                                    "device_type": device_type,
+                                    "http_flows": agg.get("_http_flows", 0),
+                                    "dns_flows":  agg.get("_dns_flows", 0),
+                                    "tls_flows":  agg.get("_tls_flows", 0),
+                                    "app_protos": agg.get("_app_protos", []),
+                                }
+                                WIN_META.parent.mkdir(parents=True, exist_ok=True)
+                                WIN_META.write_text(json.dumps(meta_out), encoding="utf-8")
+                                # basic health heartbeat for feature pipeline
+                                health = {
+                                    "ts": time.time(),
+                                    "window_start": win_start.isoformat() if win_start else None,
+                                    "flows": row.get("flows", 0),
+                                    "bytes_total": row.get("bytes_total", 0),
+                                    "pkts_total": row.get("pkts_total", 0),
+                                }
+                                FEAT_HEALTH.parent.mkdir(parents=True, exist_ok=True)
+                                FEAT_HEALTH.write_text(json.dumps(health), encoding="utf-8")
+                            except Exception:
+                                pass
+                        # advance window until current ts fits
+                        while ts >= win_end:
+                            win_start += timedelta(seconds=WINDOW_SEC)
+                            win_end = win_start + timedelta(seconds=WINDOW_SEC)
+                        buf = [r]
 
             # Reset error counter on successful iteration
             consecutive_errors = 0

@@ -122,6 +122,25 @@ def main():
     ap.add_argument("--model-out", default=None, help="Path to save model (defaults to config based on type).")
     ap.add_argument("--meta-out", default=None, help="Path to save meta JSON (defaults to config based on type).")
     ap.add_argument("--model-type", default="iot", choices=["iot", "it"], help="Model type to train (iot or it).")
+    
+    # ---------- Robustness Options ----------
+    ap.add_argument(
+        "--cross-validate", 
+        action="store_true", 
+        help="Use 5-fold cross-validation to estimate model robustness."
+    )
+    ap.add_argument(
+        "--feature-importance", 
+        action="store_true", 
+        help="Print feature importance ranking after training."
+    )
+    ap.add_argument(
+        "--min-samples",
+        type=int,
+        default=100,
+        help="Minimum samples required for training (default: 100)."
+    )
+    
     # Hyperparameter defaults are taken from configs/model.yaml:lgbm when available
     ap.add_argument(
         "--learning-rate",
@@ -174,6 +193,35 @@ def main():
     if "label" not in df.columns:
         raise ValueError("CSV must contain a 'label' column.")
 
+    # ---------- Robust Input Validation ----------
+    # Check for empty dataset
+    if len(df) == 0:
+        raise ValueError("Empty training dataset. CSV has no data rows.")
+    
+    # Check for minimum sample count
+    MIN_SAMPLES = 100
+    if len(df) < MIN_SAMPLES:
+        print(f"[WARNING] Very small dataset ({len(df)} samples). Consider gathering more data.")
+    
+    # Check for missing values
+    missing_counts = df.isnull().sum()
+    if missing_counts.any():
+        missing_cols = missing_counts[missing_counts > 0]
+        print(f"[WARNING] Columns with missing values:\n{missing_cols}")
+        # Drop rows with any missing values for robustness
+        df = df.dropna()
+        print(f"   -> After dropping NaN rows: {len(df)} samples remaining")
+    
+    # Check for infinite values in numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+    inf_mask = np.isinf(df[numeric_cols]).any()
+    if inf_mask.any():
+        inf_cols = inf_mask[inf_mask].index.tolist()
+        print(f"[WARNING] Columns with infinite values: {inf_cols}")
+        # Replace inf with large finite values
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
+        print(f"   -> After handling inf values: {len(df)} samples remaining")
+
     # ---------- Feature selection ----------
     # Prefer the explicit schema from configs/model.yaml so it matches inference.
     if _FEATURES_CFG:
@@ -193,8 +241,25 @@ def main():
     X = df[feat_cols].to_numpy(dtype=np.float32)
     y = _to_binary_labels(df["label"])
 
+    # ---------- Class Balance Validation ----------
     n_pos = int(y.sum())
+    n_neg = len(y) - n_pos
     n_all = len(y)
+    
+    # Check for extreme class imbalance
+    minority_ratio = min(n_pos, n_neg) / n_all
+    if minority_ratio < 0.01:
+        print(f"[WARNING] Extreme class imbalance detected!")
+        print(f"   Minority class: {min(n_pos, n_neg)} samples ({minority_ratio*100:.2f}%)")
+        print(f"   Consider using class_weight='balanced' or oversampling.")
+    
+    # Check for single-class data
+    if n_pos == 0 or n_neg == 0:
+        raise ValueError(
+            f"Training data has only one class! Need both benign and attack samples. "
+            f"Benign: {n_neg}, Attack: {n_pos}"
+        )
+    
     print("[*] Loading training data...")
     print(f"   rows: {n_all} columns: {df.shape[1]}")
     print(f"   Samples: {n_all} | Features: {len(feat_cols)} | Positives: {n_pos} ({100.0*n_pos/n_all:.2f}%)")
@@ -248,6 +313,45 @@ def main():
     print("Confusion @best_thr:\n", cm)
     print("\nReport @best_thr:\n", cr)
 
+    # ---------- Feature Importance (optional) ----------
+    if args.feature_importance:
+        print("\n[*] Feature Importance Ranking:")
+        importances = clf.feature_importances_
+        sorted_idx = np.argsort(importances)[::-1]
+        for i, idx in enumerate(sorted_idx[:10]):  # Top 10 features
+            print(f"   {i+1}. {feat_cols[idx]}: {importances[idx]:.4f}")
+
+    # ---------- Cross-Validation (optional) ----------
+    cv_scores = None
+    if args.cross_validate:
+        from sklearn.model_selection import cross_val_score, StratifiedKFold
+        print("\n[*] Running 5-fold cross-validation...")
+        
+        # Create a fresh model for CV (without early stopping for simplicity)
+        cv_clf = LGBMClassifier(
+            objective="binary",
+            learning_rate=args.learning_rate,
+            n_estimators=min(500, args.n_estimators),  # Reduced for speed
+            num_leaves=args.num_leaves,
+            max_depth=args.max_depth,
+            min_child_samples=args.min_data_in_leaf,
+            subsample=args.subsample,
+            colsample_bytree=args.colsample_bytree,
+            class_weight="balanced",
+            n_jobs=-1,
+            verbose=-1,
+        )
+        
+        cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=args.random_state)
+        cv_scores = cross_val_score(cv_clf, X, y, cv=cv, scoring='roc_auc')
+        
+        print(f"   CV ROC-AUC: {cv_scores.mean():.4f} (+/- {cv_scores.std() * 2:.4f})")
+        print(f"   Fold scores: {[f'{s:.4f}' for s in cv_scores]}")
+        
+        # Warn if there's high variance between folds
+        if cv_scores.std() > 0.05:
+            print("   [WARNING] High variance between folds suggests potential overfitting")
+
     # ---------- Save ----------
     os.makedirs(os.path.dirname(args.model_out), exist_ok=True)
     dump(clf, args.model_out)
@@ -280,6 +384,12 @@ def main():
         "val_samples": len(yva),
         "description": "IoTGuard binary classifier for IoT intrusion detection"
     }
+    
+    # Add CV scores to meta if available
+    if cv_scores is not None:
+        meta["cv_roc_auc_mean"] = round(float(cv_scores.mean()), 4)
+        meta["cv_roc_auc_std"] = round(float(cv_scores.std()), 4)
+    
     with open(args.meta_out, "w", encoding="utf-8") as f:
         json.dump(meta, f, indent=2)
 

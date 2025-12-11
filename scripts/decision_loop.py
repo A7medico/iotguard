@@ -57,6 +57,14 @@ from explainer import RealTimeExplainer
 from threat_intel import ThreatIntel
 from logging_config import get_logger, get_audit_logger
 
+# Optional: Alerting system for notifications
+try:
+    from alerting import send_alert
+    ALERTING_AVAILABLE = True
+except ImportError:
+    ALERTING_AVAILABLE = False
+    send_alert = lambda *args, **kwargs: {}  # No-op fallback
+
 init(autoreset=True)
 
 # ---------- Logging ----------
@@ -66,9 +74,6 @@ audit_logger = get_audit_logger()
 # ---------- Paths ----------
 DATA_DIR    = Path("data")
 DATA_CSV    = DATA_DIR / "features.csv"
-MODEL_PATH  = Path("models/lightgbm.joblib")
-UNSUP_MODEL_PATH = Path("models/unsup_isoforest.joblib")
-UNSUP_META_PATH  = Path("models/unsup_meta.json")
 # Allow overriding config path via env for profiles (lab/prod)
 CFG_PATH    = Path(os.getenv("IOTGUARD_CONFIG") or "configs/model.yaml")
 ALERT_LOG   = DATA_DIR / "alerts.jsonl"
@@ -78,16 +83,42 @@ LOG_DIR     = Path("logs")
 AUDIT_LOG   = LOG_DIR / "audit.jsonl"         # structured internal log
 HEALTH_FILE = DATA_DIR / "decision_health.json"
 
+# ---------- Dynamic Model Loading ----------
+# Select environment: "iot" (default) or "it"
+ENV_MODE = os.getenv("IOTGUARD_ENV", "iot").lower()
+
+# Load config to get model paths
+_CFG = {}
+try:
+    if CFG_PATH.exists():
+        _CFG = yaml.safe_load(CFG_PATH.read_text(encoding="utf-8")) or {}
+except Exception as e:
+    logger.warning(f"Could not load config: {e}")
+
+# Resolve paths based on environment
+_models_cfg = _CFG.get("models", {})
+_env_cfg = _models_cfg.get(ENV_MODE, {})
+
+# Default to IoT paths if not specified
+MODEL_PATH = Path(_env_cfg.get("path", "models/lightgbm.joblib"))
+META_PATH  = Path(_env_cfg.get("meta", "models/model_meta.json"))
+
+logger.info(f"🌍 Environment: {ENV_MODE.upper()}")
+logger.info(f"📂 Loading model: {MODEL_PATH}")
+
+UNSUP_MODEL_PATH = Path("models/unsup_isoforest.joblib")
+UNSUP_META_PATH  = Path("models/unsup_meta.json")
+
 # ---------- Model / Features ----------
-# Load features from model_meta.json if available, else use defaults
+# Load features from model metadata
 FEATURES = None
 try:
-    meta_path = Path("models/model_meta.json")
-    if meta_path.exists():
-        meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+    if META_PATH.exists():
+        meta = _json.loads(META_PATH.read_text(encoding="utf-8"))
         FEATURES = meta.get("features")
+        logger.info(f"✅ Loaded features from {META_PATH}")
 except Exception as e:
-    print(Fore.YELLOW + f"⚠️  Could not load model_meta.json: {e}" + Style.RESET_ALL)
+    print(Fore.YELLOW + f"⚠️  Could not load model meta: {e}" + Style.RESET_ALL)
 
 if not FEATURES:
     # Fallback to the 13 core features
@@ -170,8 +201,6 @@ def load_unsupervised_model():
 
 UNSUP_AVAILABLE = load_unsupervised_model()
 
-# Initialize Explainer
-print(Fore.CYAN + "ℹ️  Initializing RealTimeExplainer..." + Style.RESET_ALL)
 # Initialize Explainer (Default to IoT model for now)
 print(Fore.CYAN + "ℹ️  Initializing RealTimeExplainer..." + Style.RESET_ALL)
 # Use the first available model for the explainer initialization
@@ -918,6 +947,16 @@ def main() -> None:
                     dry_run=bool(DRY_RUN),
                     score=float(p),
                 )
+                
+                # Send alert via configured channels (Email/Slack/Telegram)
+                if ALERTING_AVAILABLE:
+                    attack_type = classify_attack_heuristic(row) if is_attack else "Unknown"
+                    send_alert(
+                        title=f"Attack Blocked: {attack_type}",
+                        message=f"Score: {p:.2%}\nIP: {ip_to_block}\nSeverity: {response_type}\nDry Run: {DRY_RUN}",
+                        severity="high" if response_type == "hard" else "medium",
+                        src_ip=ip_to_block
+                    )
 
             # Console line
             color = Fore.RED if is_attack else Fore.GREEN

@@ -1,0 +1,28 @@
+# Virtual environments (pip installs in container)
+venv/
+.venv/
+__pycache__/
+*.pyc
+
+# Git
+.git/
+.github/
+
+# IDE
+.vscode/
+.idea/
+
+# Large data files (mounted as volumes instead)
+data/
+logs/
+
+# Test cache
+.pytest_cache/
+
+# Temporary files
+*.tmp
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db

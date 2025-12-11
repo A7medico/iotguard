@@ -110,6 +110,26 @@ hybrid:
   # Label for unsupervised-only detections (when supervised says benign)
   unsup_only_label: "ANOMALY (unsupervised)"
 
+# -----------------------------------------------------------------------------
+# Ensemble Configuration (for scripts/ensemble.py)
+# -----------------------------------------------------------------------------
+ensemble:
+  # Strategy: "weighted", "or", "and", "max"
+  strategy: weighted
+  supervised_weight: 0.7
+  unsupervised_weight: 0.3
+  # Apply probability calibration
+  calibrate: true
 
-
-
+# -----------------------------------------------------------------------------
+# Alert Configuration (for scripts/alerts.py)
+# Configure via environment variables:
+#   IOTGUARD_SMTP_HOST, IOTGUARD_SMTP_PORT, IOTGUARD_SMTP_USER,
+#   IOTGUARD_SMTP_PASS, IOTGUARD_SMTP_TO, IOTGUARD_SLACK_WEBHOOK
+# -----------------------------------------------------------------------------
+alerts:
+  # Minimum severity to trigger alerts: low, medium, high, critical
+  min_severity: medium
+  # Enable/disable channels (actual config via env vars)
+  email_enabled: false
+  slack_enabled: false

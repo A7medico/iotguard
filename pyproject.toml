@@ -1,0 +1,101 @@
+# =============================================================================
+# IoTGuard Project Configuration
+# =============================================================================
+# Tool configuration for Ruff, pytest, and other development tools.
+# =============================================================================
+
+[project]
+name = "iotguard"
+version = "1.0.0"
+description = "ML-Driven IoT Intrusion Detection System"
+requires-python = ">=3.11"
+
+# -----------------------------------------------------------------------------
+# Ruff Configuration - Fast Python Linter & Formatter
+# https://docs.astral.sh/ruff/
+# -----------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+# Exclude directories
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "*.pyc",
+    ".pytest_cache",
+]
+
+[tool.ruff.lint]
+# Enable common rule sets
+select = [
+    "E",      # pycodestyle errors
+    "W",      # pycodestyle warnings
+    "F",      # Pyflakes
+    "I",      # isort (import sorting)
+    "B",      # flake8-bugbear
+    "C4",     # flake8-comprehensions
+    "UP",     # pyupgrade
+    "SIM",    # flake8-simplify
+]
+
+# Ignore specific rules
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "E722",   # Bare except (sometimes necessary)
+    "B008",   # Function call in default argument
+    "SIM108", # Use ternary operator (readability preference)
+]
+
+# Per-file ignores
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401", "F811"]  # Allow unused imports in tests
+"__init__.py" = ["F401"]       # Allow unused imports in init
+
+[tool.ruff.format]
+# Use double quotes for strings
+quote-style = "double"
+# Indent with spaces
+indent-style = "space"
+# Unix-style line endings
+line-ending = "auto"
+
+# -----------------------------------------------------------------------------
+# Pytest Configuration
+# https://docs.pytest.org/
+# -----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "-ra",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]
+
+# -----------------------------------------------------------------------------
+# Coverage Configuration
+# https://coverage.readthedocs.io/
+# -----------------------------------------------------------------------------
+[tool.coverage.run]
+source = ["scripts"]
+omit = [
+    "*/tests/*",
+    "*/__pycache__/*",
+    "*/venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]

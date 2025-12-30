@@ -21,11 +21,12 @@ from pathlib import Path
 
 
 def main() -> None:
-    root = Path(__file__).resolve().parent.parent
+    # Go up two levels: 9_utilities -> scripts -> project root
+    root = Path(__file__).resolve().parent.parent.parent
     cmds = [
-        [sys.executable, "scripts/suricata_to_features.py"],
-        [sys.executable, "scripts/decision_loop.py"],
-        [sys.executable, "scripts/api_dashboard.py"],
+        [sys.executable, "scripts/1_data_input/suricata_to_features.py"],
+        [sys.executable, "scripts/3_inference/decision_loop.py"],
+        [sys.executable, "scripts/5_dashboard/api_dashboard.py"],
     ]
 
     procs = []

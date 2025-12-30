@@ -50,8 +50,13 @@ from colorama import init, Fore, Style
 import yaml
 import sys
 
-# Add scripts directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts directory and subdirectories to path for imports
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+sys.path.insert(0, str(_scripts_dir / "9_utilities"))
+sys.path.insert(0, str(_scripts_dir / "3_inference"))
+sys.path.insert(0, str(_scripts_dir / "4_response"))
+sys.path.insert(0, str(_scripts_dir / "6_threat_intel"))
 from blocker import block_ip as blocker_block_ip
 from explainer import RealTimeExplainer
 from threat_intel import ThreatIntel

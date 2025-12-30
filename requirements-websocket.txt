@@ -1,0 +1,19 @@
+# =============================================================================
+# IoTGuard Optional WebSocket Dependencies
+# =============================================================================
+# Install with: pip install -r requirements-websocket.txt
+# These are optional - the dashboard works without them (polling fallback)
+# =============================================================================
+
+# Flask-SocketIO for WebSocket support
+flask-socketio>=5.3
+
+# Python-SocketIO core library
+python-socketio>=5.10
+
+# Simple WebSocket transport (no eventlet/gevent required)
+simple-websocket>=1.0
+
+# Optional: For production deployments with better performance
+# gevent>=23.0
+# gevent-websocket>=0.10

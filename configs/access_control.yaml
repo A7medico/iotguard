@@ -1,0 +1,77 @@
+# =============================================================================
+# IoTGuard IP Access Control Configuration
+# =============================================================================
+# This file defines permanent allowlist and blocklist rules that bypass the
+# ML-based detection system. Use this for:
+#   - Trusted IPs that should never be blocked (allowlist)
+#   - Known malicious IPs that should always be blocked (blocklist)
+#
+# The blocklist is checked FIRST, then the allowlist.
+# If an IP is on both lists, it will be BLOCKED (blocklist takes precedence).
+#
+# This file is hot-reloaded - changes take effect without restart.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Allowlist - IPs that bypass ML detection (never blocked)
+# -----------------------------------------------------------------------------
+# Use this for:
+#   - Your own servers and infrastructure
+#   - Trusted monitoring services
+#   - Known-good scanners (e.g., internal vulnerability scanning)
+#
+# Format: List of IP addresses or CIDR ranges
+allowlist:
+  # Your own infrastructure (uncomment and modify)
+  # - "192.168.1.1"          # Gateway
+  # - "10.0.0.0/24"          # Internal network
+  # - "203.0.113.50"         # Monitoring service
+
+  # Example trusted IPs
+  - "192.168.1.1"            # Default gateway (example)
+
+# -----------------------------------------------------------------------------
+# Blocklist - IPs that are always blocked (bypass ML detection)
+# -----------------------------------------------------------------------------
+# Use this for:
+#   - Known malicious IPs from threat intelligence feeds
+#   - IPs that have attacked you before
+#   - Geographically suspicious sources
+#
+# Format: List of IP addresses or CIDR ranges
+blocklist:
+  # Known malicious IPs (uncomment and add your own)
+  # - "203.0.113.100"        # Known scanner
+  # - "198.51.100.0/24"      # Malicious network
+
+  # Example blocked IPs (empty by default)
+  # - "1.2.3.4"
+
+# -----------------------------------------------------------------------------
+# Rate Limiting Configuration
+# -----------------------------------------------------------------------------
+# Protect the API dashboard from abuse
+rate_limiting:
+  enabled: true
+
+  # Requests per window (default: 100 requests per minute)
+  default_limit: 100
+  window_seconds: 60
+
+  # Stricter limits for sensitive endpoints
+  login_limit: 5            # Login attempts per minute
+  config_limit: 10          # Config changes per minute
+
+  # IPs exempt from rate limiting (e.g., your monitoring)
+  exempt_ips:
+    - "127.0.0.1"
+    - "::1"
+
+# -----------------------------------------------------------------------------
+# Notes
+# -----------------------------------------------------------------------------
+# - CIDR notation is supported: "192.168.1.0/24" matches 192.168.1.0-255
+# - IPv6 addresses are supported: "2001:db8::1"
+# - Empty lists are valid (no rules applied)
+# - Changes are applied within 30 seconds (hot-reload)
+# =============================================================================

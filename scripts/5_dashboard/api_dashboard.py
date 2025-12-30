@@ -58,8 +58,13 @@ from pathlib import Path
 from datetime import datetime, timezone
 from flask import Flask, jsonify, request, Response, abort, g
 
-# Add scripts directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts directory and subdirectories to path for imports
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+sys.path.insert(0, str(_scripts_dir / "9_utilities"))
+sys.path.insert(0, str(_scripts_dir / "3_inference"))
+sys.path.insert(0, str(_scripts_dir / "4_response"))
+sys.path.insert(0, str(_scripts_dir / "5_dashboard"))
 from logging_config import get_logger
 
 # Import new enhancement modules
@@ -95,6 +100,30 @@ try:
 except ImportError:
     ALERTS_AVAILABLE = False
 
+# =============================================================================
+# RATE LIMITING & ACCESS CONTROL
+# =============================================================================
+try:
+    from rate_limiter import get_rate_limiter, check_rate_limit
+    RATE_LIMITER_AVAILABLE = True
+except ImportError:
+    RATE_LIMITER_AVAILABLE = False
+    get_rate_limiter = None
+    check_rate_limit = None
+
+# =============================================================================
+# WEBSOCKET SUPPORT (Optional - for real-time dashboard updates)
+# =============================================================================
+# Install with: pip install -r requirements-websocket.txt
+# If not installed, the dashboard falls back to polling mode.
+# =============================================================================
+try:
+    from flask_socketio import SocketIO, emit
+    SOCKETIO_AVAILABLE = True
+except ImportError:
+    SOCKETIO_AVAILABLE = False
+    SocketIO = None
+
 logger = get_logger("api_dashboard")
 
 DATA_DIR   = Path("data")
@@ -103,6 +132,61 @@ CFG_FILE   = Path(os.getenv("IOTGUARD_CONFIG") or "configs/model.yaml")
 
 app = Flask(__name__)
 _lock = threading.Lock()
+
+# =============================================================================
+# WEBSOCKET INITIALIZATION
+# =============================================================================
+# Initialize SocketIO if available - enables real-time push notifications
+# instead of client-side polling.
+# =============================================================================
+socketio = None
+if SOCKETIO_AVAILABLE and SocketIO is not None:
+    socketio = SocketIO(
+        app,
+        cors_allowed_origins="*",
+        async_mode="threading",  # Uses simple threading, no eventlet/gevent needed
+        logger=False,
+        engineio_logger=False,
+    )
+    logger.info("WebSocket support enabled (Flask-SocketIO)")
+else:
+    logger.info("WebSocket support disabled (install flask-socketio for real-time updates)")
+
+
+def emit_new_alert(alert_data: dict) -> None:
+    """
+    Emit a new alert to all connected WebSocket clients.
+
+    Call this function from decision_loop.py when a new alert is logged.
+    If WebSocket is not available, this function does nothing.
+
+    Args:
+        alert_data: The alert dictionary to broadcast
+
+    Example:
+        from api_dashboard import emit_new_alert
+        emit_new_alert({"ts": time.time(), "score": 0.95, "action": "BLOCK"})
+    """
+    if socketio is not None:
+        try:
+            socketio.emit("new_alert", alert_data, namespace="/")
+        except Exception as e:
+            logger.debug(f"WebSocket emit failed: {e}")
+
+
+def emit_config_changed(config_data: dict) -> None:
+    """
+    Emit config change notification to all connected WebSocket clients.
+
+    Args:
+        config_data: The updated config dictionary
+    """
+    if socketio is not None:
+        try:
+            socketio.emit("config_changed", config_data, namespace="/")
+        except Exception as e:
+            logger.debug(f"WebSocket emit failed: {e}")
+
 
 # Optional HTTP basic auth for the dashboard/API.
 # If you set environment variables IOTGUARD_USER and IOTGUARD_PASS,
@@ -208,6 +292,46 @@ REQUIRE_AUTH = _bool_env("IOTGUARD_REQUIRE_AUTH", default=(not _initial_dry_run)
 ALLOW_LIVE_CONFIG = _bool_env("IOTGUARD_ALLOW_LIVE_CONFIG", default=False)
 
 # ---------- APIs ----------
+@app.before_request
+def _check_rate_limit():
+    """
+    Check rate limits before processing requests.
+    Returns 429 Too Many Requests if limit exceeded.
+    """
+    if not RATE_LIMITER_AVAILABLE or check_rate_limit is None:
+        return
+
+    # Get client IP
+    client_ip = request.remote_addr or "unknown"
+
+    # Determine endpoint type for per-endpoint limits
+    path = request.path or "/"
+    endpoint_type = None
+    if "/login" in path:
+        endpoint_type = "login"
+    elif "/config" in path and request.method == "POST":
+        endpoint_type = "config"
+
+    # Check rate limit
+    allowed, headers = check_rate_limit(client_ip, endpoint_type)
+
+    # Add rate limit headers to response
+    @app.after_request
+    def add_rate_limit_headers(response):
+        for key, value in headers.items():
+            response.headers[key] = value
+        return response
+
+    if not allowed:
+        logger.warning(f"Rate limit exceeded for {client_ip} on {path}")
+        return Response(
+            json.dumps({"error": "Rate limit exceeded", "retry_after": headers.get("Retry-After")}),
+            status=429,
+            mimetype="application/json",
+            headers=headers
+        )
+
+
 @app.before_request
 def _basic_auth():
     """
@@ -1340,5 +1464,11 @@ if __name__ == "__main__":
     port = int(os.environ.get("IOTGUARD_PORT", "5001"))
     logger.info(f"Starting IoTGuard API Dashboard on http://{host}:{port}")
     logger.info(f"Mode: {'DEMO (dry_run)' if _initial_dry_run else 'LIVE'}, Auth required: {REQUIRE_AUTH}")
-    app.run(host=host, port=port, debug=False)
 
+    # Use SocketIO runner if WebSocket support is enabled, otherwise use Flask directly
+    if socketio is not None:
+        logger.info("Running with WebSocket support enabled")
+        socketio.run(app, host=host, port=port, debug=False, allow_unsafe_werkzeug=True)
+    else:
+        logger.info("Running without WebSocket support (polling mode)")
+        app.run(host=host, port=port, debug=False)

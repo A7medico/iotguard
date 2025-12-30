@@ -38,8 +38,10 @@ from datetime import datetime, timedelta, timezone
 import pandas as pd
 import yaml
 
-# Add scripts directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts directory and subdirectories to path for imports
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+sys.path.insert(0, str(_scripts_dir / "9_utilities"))
 try:
     from logging_config import get_logger
     logger = get_logger("suricata_to_features")

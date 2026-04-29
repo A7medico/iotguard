@@ -251,7 +251,7 @@ def run():
     max_consecutive_errors = 10
 
     logger.info(f"Starting to tail {IN}")
-    print(f"🟢 Tailing {IN}")
+    print(f"[*] Tailing {IN}")
     while not _shutdown_requested:
         try:
             id_now = file_inode(IN)
@@ -353,7 +353,7 @@ def run():
     # Graceful shutdown
     logger.info("Suricata feature extractor stopped")
     save_state(state["pos"], state["inode"])
-    print("🛑 Suricata feature extractor stopped")
+    print("[!] Suricata feature extractor stopped")
 
 
 if __name__ == "__main__":

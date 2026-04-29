@@ -57,6 +57,11 @@ sys.path.insert(0, str(project_root))
 scripts_dir = project_root / "scripts"
 sys.path.insert(0, str(scripts_dir))
 
+# Add numbered subdirectories so modules like blocker, decision_loop, etc. are importable
+for subdir in sorted(scripts_dir.iterdir()):
+    if subdir.is_dir() and subdir.name[0].isdigit():
+        sys.path.insert(0, str(subdir))
+
 
 # ---------- Pytest Configuration ----------
 # Pytest-specific configuration can be added here if needed

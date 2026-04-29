@@ -22,6 +22,7 @@ Environment Variables
 
 import os
 import sys
+import io
 import json
 import logging
 from logging.handlers import RotatingFileHandler
@@ -109,13 +110,15 @@ def get_logger(name: str, log_file: str = None) -> logging.Logger:
         return logger
     
     # ---------- Console Handler ----------
-    console_handler = logging.StreamHandler(sys.stdout)
+    # Wrap stdout in UTF-8 to avoid UnicodeEncodeError on Windows (cp1252)
+    _utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace", line_buffering=True)
+    console_handler = logging.StreamHandler(_utf8_stdout)
     console_handler.setLevel(logging.INFO)
     
     if USE_JSON_LOGS:
         console_handler.setFormatter(JSONFormatter())
     else:
-        console_format = "%(asctime)s │ %(levelname)-8s │ %(name)s │ %(message)s"
+        console_format = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
         console_handler.setFormatter(ColoredFormatter(console_format, datefmt="%H:%M:%S"))
     
     logger.addHandler(console_handler)

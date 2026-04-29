@@ -1,7 +1,7 @@
 """
 tests/test_alerting.py
 -----------------------------------------------------------------------------
-Unit tests for the alerting module (alerting.py)
+Unit tests for the alert system (alerts.py / AlertManager)
 -----------------------------------------------------------------------------
 """
 import pytest
@@ -12,146 +12,137 @@ from unittest.mock import patch, MagicMock
 
 # Add scripts directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts" / "4_response"))
 
 
-class TestAlertingConfig:
-    """Test alerting configuration loading"""
-    
-    def test_config_disabled_by_default(self):
-        """Alerting should be disabled by default"""
-        from alerting import _get_config
-        
-        # Clear env vars
+class TestAlertManagerConfig:
+    """Test AlertManager configuration loading"""
+
+    def test_no_channels_by_default(self):
+        """Without env vars, no external channels should be enabled"""
+        # Clear relevant env vars
+        saved = {}
         for key in list(os.environ.keys()):
-            if key.startswith("IOTGUARD_"):
-                del os.environ[key]
-        
-        cfg = _get_config()
-        assert cfg["enabled"] is False
-    
-    def test_config_from_env(self):
-        """Config should load from environment variables"""
-        from alerting import _get_config
-        
-        os.environ["IOTGUARD_ALERTING_ENABLED"] = "true"
-        os.environ["IOTGUARD_SLACK_WEBHOOK"] = "https://test.webhook"
-        
-        cfg = _get_config()
-        
-        assert cfg["enabled"] is True
-        assert cfg["slack_webhook"] == "https://test.webhook"
-        
-        # Cleanup
-        del os.environ["IOTGUARD_ALERTING_ENABLED"]
-        del os.environ["IOTGUARD_SLACK_WEBHOOK"]
+            if key.startswith("IOTGUARD_SMTP") or key.startswith("IOTGUARD_SLACK"):
+                saved[key] = os.environ.pop(key)
+
+        from alerts import AlertManager
+        manager = AlertManager()
+
+        assert manager.email_enabled is False
+        assert manager.slack_enabled is False
+
+        # Restore
+        os.environ.update(saved)
+
+    def test_min_severity_default(self):
+        """Default minimum severity should be 'medium'"""
+        saved = os.environ.pop("IOTGUARD_ALERT_MIN_SEVERITY", None)
+
+        from alerts import AlertManager
+        manager = AlertManager()
+
+        assert manager.min_severity == "medium"
+
+        if saved is not None:
+            os.environ["IOTGUARD_ALERT_MIN_SEVERITY"] = saved
 
 
-class TestSeverity:
-    """Test severity levels"""
-    
-    def test_severity_colors_defined(self):
-        """All severity levels should have colors"""
-        from alerting import SEVERITY_COLORS
-        
-        assert "critical" in SEVERITY_COLORS
-        assert "high" in SEVERITY_COLORS
-        assert "medium" in SEVERITY_COLORS
-        assert "low" in SEVERITY_COLORS
-        assert "info" in SEVERITY_COLORS
-    
-    def test_severity_emoji_defined(self):
+class TestSeverityLevels:
+    """Test severity level handling"""
+
+    def test_severity_to_level(self):
+        """Severity strings should map to correct numeric levels"""
+        from alerts import AlertManager
+        manager = AlertManager()
+
+        assert manager._severity_to_level("low") == 1
+        assert manager._severity_to_level("medium") == 2
+        assert manager._severity_to_level("high") == 3
+        assert manager._severity_to_level("critical") == 4
+
+    def test_severity_emoji(self):
         """All severity levels should have emojis"""
-        from alerting import SEVERITY_EMOJI
-        
-        assert "critical" in SEVERITY_EMOJI
-        assert "high" in SEVERITY_EMOJI
+        from alerts import AlertManager
+        manager = AlertManager()
+
+        for sev in ["low", "medium", "high", "critical"]:
+            emoji = manager._get_emoji(sev)
+            assert len(emoji) > 0, f"No emoji for severity '{sev}'"
+
+    def test_should_alert_filtering(self):
+        """Alerts below minimum severity should be suppressed"""
+        from alerts import AlertManager
+        manager = AlertManager()
+        manager.min_severity = "high"
+
+        assert manager._should_alert("low") is False
+        assert manager._should_alert("medium") is False
+        assert manager._should_alert("high") is True
+        assert manager._should_alert("critical") is True
 
 
 class TestSendAlert:
     """Test the main send_alert function"""
-    
-    def test_send_alert_disabled(self):
-        """send_alert should return all False when disabled"""
-        from alerting import send_alert
-        
-        # Ensure alerting is disabled
-        os.environ["IOTGUARD_ALERTING_ENABLED"] = "false"
-        
-        results = send_alert(
+
+    def test_send_alert_below_threshold(self):
+        """send_alert should suppress alerts below minimum severity"""
+        from alerts import AlertManager
+        manager = AlertManager()
+        manager.min_severity = "critical"
+
+        results = manager.send_alert(
             title="Test",
             message="Test message",
-            severity="high"
+            severity="low"
         )
-        
+
+        # Console always True in result, but email/slack False
         assert results["email"] is False
         assert results["slack"] is False
-        assert results["telegram"] is False
-    
-    def test_rate_limiting(self):
-        """Alerts should be rate limited"""
-        from alerting import send_alert, _get_config
-        import alerting
-        
-        # Reset last alert time
-        alerting._last_alert_time = 0
-        os.environ["IOTGUARD_ALERTING_ENABLED"] = "true"
-        os.environ["IOTGUARD_ALERT_INTERVAL"] = "60"
-        
-        # First alert (should work but no channels configured)
-        results1 = send_alert("Test1", "Message1", force=True)
-        
-        # Second alert within interval (should be rate limited)
-        alerting._last_alert_time = float('inf')  # Simulate recent alert
-        results2 = send_alert("Test2", "Message2")
-        
-        # All should be False due to rate limiting
-        assert all(v is False for v in results2.values())
-        
-        # Cleanup
-        del os.environ["IOTGUARD_ALERTING_ENABLED"]
-        del os.environ["IOTGUARD_ALERT_INTERVAL"]
 
+    def test_send_alert_returns_dict(self):
+        """send_alert should return a dict with channel statuses"""
+        from alerts import AlertManager
+        manager = AlertManager()
+        manager.min_severity = "low"
 
-class TestSlackAlert:
-    """Test Slack webhook alerting"""
-    
-    @patch("urllib.request.urlopen")
-    def test_slack_alert_success(self, mock_urlopen):
-        """Slack alert should succeed with valid webhook"""
-        from alerting import send_slack_alert
-        
-        mock_response = MagicMock()
-        mock_response.status = 200
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
-        
-        cfg = {
-            "slack_webhook": "https://hooks.slack.com/test"
-        }
-        
-        result = send_slack_alert(
-            title="Test Alert",
-            message="Test message",
-            severity="high",
-            src_ip="192.168.1.100",
-            cfg=cfg
-        )
-        
-        assert result is True
-        mock_urlopen.assert_called_once()
-    
-    def test_slack_alert_no_webhook(self):
-        """Slack alert should fail gracefully without webhook"""
-        from alerting import send_slack_alert
-        
-        result = send_slack_alert(
+        results = manager.send_alert(
             title="Test",
-            message="Test",
-            cfg={"slack_webhook": ""}
+            message="Test message",
+            severity="medium"
         )
-        
-        assert result is False
+
+        assert isinstance(results, dict)
+        assert "console" in results
+        assert "email" in results
+        assert "slack" in results
+
+
+class TestSendThreatAlert:
+    """Test the convenience send_threat_alert function"""
+
+    def test_send_threat_alert_returns_dict(self):
+        """send_threat_alert should return channel status dict"""
+        from alerts import send_threat_alert
+
+        results = send_threat_alert(
+            ip="192.168.1.100",
+            score=0.95,
+            attack_type="SYN_Flood"
+        )
+
+        assert isinstance(results, dict)
+        assert "console" in results
+
+    def test_get_alert_manager_singleton(self):
+        """get_alert_manager should return the same instance"""
+        from alerts import get_alert_manager
+
+        m1 = get_alert_manager()
+        m2 = get_alert_manager()
+
+        assert m1 is m2
 
 
 if __name__ == "__main__":

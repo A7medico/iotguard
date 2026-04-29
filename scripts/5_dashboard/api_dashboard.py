@@ -130,7 +130,7 @@ DATA_DIR   = Path("data")
 ALERT_LOG  = DATA_DIR / "alerts.jsonl"
 CFG_FILE   = Path(os.getenv("IOTGUARD_CONFIG") or "configs/model.yaml")
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder=str(Path(__file__).parent / "templates"), static_url_path="/static")
 _lock = threading.Lock()
 
 # =============================================================================
@@ -315,12 +315,8 @@ def _check_rate_limit():
     # Check rate limit
     allowed, headers = check_rate_limit(client_ip, endpoint_type)
 
-    # Add rate limit headers to response
-    @app.after_request
-    def add_rate_limit_headers(response):
-        for key, value in headers.items():
-            response.headers[key] = value
-        return response
+    # Store rate limit headers on g for the after_request handler
+    g._rate_limit_headers = headers
 
     if not allowed:
         logger.warning(f"Rate limit exceeded for {client_ip} on {path}")
@@ -330,6 +326,16 @@ def _check_rate_limit():
             mimetype="application/json",
             headers=headers
         )
+
+
+@app.after_request
+def _add_rate_limit_headers(response):
+    """Add rate limit headers stored during before_request."""
+    headers = getattr(g, "_rate_limit_headers", None)
+    if headers:
+        for key, value in headers.items():
+            response.headers[key] = value
+    return response
 
 
 @app.before_request
@@ -825,9 +831,23 @@ def api_download_csv():
     )
 
 @app.get("/")
-def index():
-    # Plain string (NOT f-string) so `${...}` in JS stays intact
-    html = """
+def website():
+    # Serve the project landing page from website/index.html
+    _site = Path(__file__).resolve().parent.parent.parent / "website" / "index.html"
+    if _site.exists():
+        html = _site.read_text(encoding="utf-8")
+        resp = Response(html, mimetype="text/html")
+        resp.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"
+        return resp
+    # Fallback to dashboard if website not found
+    return dashboard()
+
+@app.get("/dashboard")
+def dashboard():
+    # Load dashboard HTML from template file
+    _tmpl = Path(__file__).parent / "templates" / "index.html"
+    html = _tmpl.read_text(encoding="utf-8")
+    _old_html = """
 <!doctype html>
 <html>
 <head>

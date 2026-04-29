@@ -23,7 +23,7 @@ Running
 import numpy as np
 import pandas as pd
 
-from scripts.train_supervised import _to_binary_labels, pick_best_threshold
+from train_supervised import _to_binary_labels, pick_best_threshold
 
 
 class TestToBinaryLabels:

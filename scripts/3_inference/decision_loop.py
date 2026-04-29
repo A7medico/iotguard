@@ -1,4 +1,4 @@
-﻿"""
+"""
 scripts/decision_loop.py
 -----------------------------------------------------------------------------
 IoTGuard Pipeline — Streaming Scoring & Enforcement Engine
@@ -40,15 +40,22 @@ Key outputs
     - Firewall rules              – via blocker.py when dry_run is False (or simulated when True).
 -----------------------------------------------------------------------------
 """
-import os, time, json
+import os, time, json, io
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
 from joblib import load
 import json as _json
-from colorama import init, Fore, Style
 import yaml
 import sys
+
+# Reconfigure stdout/stderr to UTF-8 to prevent UnicodeEncodeError on Windows (cp1252)
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
+from colorama import init, Fore, Style
 
 # Add scripts directory and subdirectories to path for imports
 _scripts_dir = Path(__file__).parent.parent

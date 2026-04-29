@@ -62,7 +62,7 @@ class TestEndToEndSmoke:
         """
         # Determine project root
         root = Path(__file__).resolve().parent.parent
-        script = root / "scripts" / "test_holdout.py"
+        script = root / "scripts" / "7_testing" / "test_holdout.py"
         
         # Run the holdout script using the same Python interpreter as pytest
         result = subprocess.run(

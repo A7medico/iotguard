@@ -23,7 +23,7 @@ Running
 import pandas as pd
 import numpy as np
 
-from scripts.decision_loop import classify_attack_heuristic, compute_adaptive_threshold
+from decision_loop import classify_attack_heuristic, compute_adaptive_threshold
 
 
 class TestClassifyAttackHeuristic:

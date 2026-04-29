@@ -62,4 +62,4 @@ PyJWT>=2.8              # JWT token generation and validation
 # geoip2>=4.7           # Real GeoIP lookups (replace threat_intel simulation)
 # redis>=5.0            # Caching layer for production
 # prometheus-client>=0.17  # Alternative Prometheus client library
-# flask-socketio>=5.3   # WebSocket support for real-time updates
+flask-socketio>=5.3   # WebSocket support for real-time updates

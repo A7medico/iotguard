@@ -11,7 +11,7 @@ PURPOSE:
 IMPORTANT LEGAL NOTICE:
     ⚠️  This script is for EDUCATIONAL and TESTING purposes ONLY.
     ⚠️  Only use on networks and systems YOU OWN or have EXPLICIT PERMISSION to test.
-    ⚠️  Unauthorized use against systems you don't own is ILLEGAL.
+    Unauthorized use against systems you don't own is ILLEGAL.
 
 USAGE:
     Run from the ATTACKING laptop, targeting the laptop running IoTGuard:
@@ -70,8 +70,8 @@ def print_banner():
     print("IoTGuard Attack Simulator - FOR TESTING ONLY".center(70))
     print("=" * 70)
     print()
-    print("⚠️  WARNING: Only use on systems you OWN or have permission to test!")
-    print("⚠️  Unauthorized use is ILLEGAL and unethical.")
+    print("WARNING: Only use on systems you OWN or have permission to test!")
+    print("Unauthorized use is ILLEGAL and unethical.")
     print()
     print("-" * 70)
 

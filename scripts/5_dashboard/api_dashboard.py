@@ -780,6 +780,35 @@ def api_health():
     })
 
 
+import subprocess
+
+@app.post("/api/simulate")
+def api_simulate():
+    attack_type = request.args.get("type", "syn")
+    type_map = {
+        "syn": "syn_flood",
+        "udp": "udp_flood",
+        "http": "http_flood",
+        "scan": "port_scan"
+    }
+    real_type = type_map.get(attack_type, "syn_flood")
+    target_ip = os.environ.get("IOTGUARD_SIM_TARGET", "127.0.0.1")
+    sim_script = str(_scripts_dir / "8_simulation" / "attack_simulator.py")
+    
+    try:
+        env = os.environ.copy()
+        env["PYTHONIOENCODING"] = "utf-8"
+        subprocess.Popen(
+            [sys.executable, sim_script, "--target", target_ip, "--attack", real_type, "--duration", "10"],
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+        return jsonify({"ok": True, "message": f"Started {real_type} against {target_ip}"})
+    except Exception as e:
+        logger.error(f"Failed to launch simulator: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.post("/api/clear")
 def api_clear():
     DATA_DIR.mkdir(parents=True, exist_ok=True)

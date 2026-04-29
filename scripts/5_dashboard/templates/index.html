@@ -1,0 +1,378 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>IoTGuard — Security Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="description" content="IoTGuard Real-time IoT Intrusion Detection Dashboard"/>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛡</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">
+    <svg viewBox="0 0 28 28" fill="none"><path d="M14 2L3 8v12l11 6 11-6V8L14 2z" stroke="url(#lg)" stroke-width="2" fill="rgba(59,130,246,.1)"/><path d="M14 8v8M10 12h8" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/><defs><linearGradient id="lg" x1="3" y1="2" x2="25" y2="26"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs></svg>
+    IoTGuard
+  </div>
+  <span id="mode_badge" class="badge badge-demo">DEMO</span>
+  <div class="nav-links">
+    <a class="nav-link" href="/" style="text-decoration:none">← Website</a>
+    <button class="nav-link active" onclick="window.scrollTo({top:0,behavior:'smooth'})">Dashboard</button>
+    <button class="nav-link" onclick="document.getElementById('sec_controls').scrollIntoView({behavior:'smooth'})">Controls</button>
+    <button class="nav-link" onclick="document.getElementById('sec_events').scrollIntoView({behavior:'smooth'})">Events</button>
+  </div>
+  <div class="spacer"></div>
+  <div id="health_dot" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--green)">
+    <span class="pulse" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span> Online
+  </div>
+  <div class="clock" id="clock">—</div>
+</div>
+
+<div class="wrap">
+
+  <!-- MODEL INFO -->
+  <div class="section-title">System Status</div>
+  <div class="panel fade-in">
+    <div class="model-info" id="model_info">
+      <div class="mi"><div class="mi-label">Model</div><div class="mi-val" id="mi_type">LightGBM</div></div>
+      <div class="mi"><div class="mi-label">Version</div><div class="mi-val" id="mi_ver">—</div></div>
+      <div class="mi"><div class="mi-label">Features</div><div class="mi-val" id="mi_feat">13</div></div>
+      <div class="mi"><div class="mi-label">Train ROC-AUC</div><div class="mi-val" id="mi_auc" style="color:var(--green)">—</div></div>
+      <div class="mi"><div class="mi-label">Threshold</div><div class="mi-val" id="mi_thr">—</div></div>
+      <div class="mi"><div class="mi-label">Ensemble</div><div class="mi-val" id="mi_ens">—</div></div>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="section-title">Overview — Last 60 Minutes</div>
+  <div class="stats">
+    <div class="stat fade-in">
+      <div class="icon">📊</div>
+      <div class="label">Total Events</div>
+      <div class="val" id="mt_total">0</div>
+      <div class="sub">Scored windows</div>
+      <div class="spark" id="spark_total"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="icon">🚨</div>
+      <div class="label">Attacks Detected</div>
+      <div class="val" id="mt_attacks" style="color:var(--red)">0</div>
+      <div class="sub">Above threshold</div>
+      <div class="spark" id="spark_attacks"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="icon">🛡</div>
+      <div class="label">IPs Blocked</div>
+      <div class="val" id="mt_blocks" style="color:var(--amber)">0</div>
+      <div class="sub">Firewall actions</div>
+      <div class="spark" id="spark_blocks"></div>
+    </div>
+    <div class="stat fade-in">
+      <div class="icon">📈</div>
+      <div class="label">Detection Rate</div>
+      <div class="val" id="mt_rate" style="color:var(--green)">—</div>
+      <div class="sub">Attack / Total</div>
+    </div>
+  </div>
+
+  <!-- CHARTS ROW -->
+  <div class="section-title">Analytics</div>
+  <div class="charts-row">
+    <div class="panel fade-in">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+          Anomaly Score Timeline
+        </div>
+        <div class="panel-subtitle"><span style="color:#3b82f6">■</span> Score &nbsp;<span style="color:#f59e0b">┅</span> Threshold &nbsp;· Last 100</div>
+      </div>
+      <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+    </div>
+    <div class="panel fade-in">
+      <div class="panel-header">
+        <div class="panel-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+          Attack Distribution
+        </div>
+      </div>
+      <div class="pie-wrap"><canvas id="pieChart"></canvas></div>
+    </div>
+  </div>
+
+  <!-- CONTROLS -->
+  <div class="section-title" id="sec_controls">Decision Engine Controls</div>
+  <div class="panel fade-in">
+    <div class="controls">
+      <div class="ctrl-group"><label>Threshold</label><input id="ctl_threshold" type="number" step="0.01" min="0" max="1" style="width:90px"/></div>
+      <div class="ctrl-group"><label>Grace Hits</label><input id="ctl_grace" type="number" min="1" max="20" style="width:80px"/></div>
+      <div class="ctrl-group"><label>Window</label><input id="ctl_window" type="number" min="1" max="50" style="width:80px"/></div>
+      <div class="ctrl-group"><label>Cooldown</label><input id="ctl_cool" type="number" min="0" max="3600" style="width:90px"/></div>
+      <div class="ctrl-group" style="flex-direction:row;align-items:center;gap:6px;padding-top:18px">
+        <input id="ctl_adaptive" type="checkbox"/><label style="text-transform:none;font-size:13px;color:var(--text)">Adaptive</label>
+      </div>
+      <div style="flex:1"></div>
+      <button class="btn btn-primary" id="btn_save">Save Config</button>
+      <button class="btn" id="btn_download">⬇ Export CSV</button>
+      <button class="btn btn-danger" id="btn_clear">Clear Log</button>
+      <button class="btn btn-danger" id="btn_clear_all">Reset All</button>
+    </div>
+    <div class="toast" id="save_msg"></div>
+  </div>
+
+  <!-- ATTACK SIMULATOR -->
+  <div class="section-title">Live Attack Simulator</div>
+  <div class="panel fade-in" style="margin-bottom: 24px; border: 1px solid rgba(239, 68, 68, 0.2)">
+    <div class="controls" style="gap: 12px; justify-content: flex-start;">
+      <button class="btn btn-danger" onclick="launchAttack('syn')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">SYN Flood</button>
+      <button class="btn btn-danger" onclick="launchAttack('udp')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">UDP Flood</button>
+      <button class="btn btn-danger" onclick="launchAttack('http')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">HTTP Slowloris</button>
+      <button class="btn btn-danger" onclick="launchAttack('scan')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">Port Scan</button>
+      <div id="sim_msg" style="color: var(--amber); margin-left: 10px; font-size: 13px; font-weight: 500"></div>
+    </div>
+  </div>
+
+  <!-- BREAKDOWN -->
+  <div class="section-title">Detection Breakdown</div>
+  <div class="panel fade-in" style="display:flex;gap:32px;flex-wrap:wrap">
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Attack Types</div>
+      <div id="class_chips" class="chips"><span class="chip">Loading...</span></div>
+    </div>
+    <div style="flex:1;min-width:200px">
+      <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Block Actions</div>
+      <div id="block_chips" class="chips"><span class="chip">Loading...</span></div>
+    </div>
+  </div>
+
+  <!-- EVENTS TABLE -->
+  <div class="section-title" id="sec_events">Event Log</div>
+  <div class="panel fade-in">
+    <div class="panel-header">
+      <div class="panel-title">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        Recent Events
+      </div>
+      <div class="filters">
+        <label>State <select id="flt_state"><option value="all">All</option><option value="ATTACK">Attack</option><option value="benign">Benign</option></select></label>
+        <label><input id="flt_blocked" type="checkbox"/> Blocked only</label>
+        <label>Search <input id="flt_text" type="text" placeholder="type / reason / IP..." style="min-width:180px"/></label>
+      </div>
+    </div>
+    <div class="tbl-wrap" id="tbl_wrap">
+    <table>
+      <thead><tr><th>Timestamp</th><th>#</th><th>Score</th><th>State</th><th>Threat Intel</th><th>XAI Reason</th><th>Classification</th><th>Hits</th><th>Action</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    </div>
+    <button class="expand-btn" id="btn_expand" onclick="toggleExpand()">▼ Show All Events</button>
+  </div>
+
+  <div class="footer">IoTGuard IDS v1.0 · Real-time intrusion detection · Powered by LightGBM + SHAP · Auto-refresh 2s</div>
+</div>
+
+<script>
+let lastTs=null,chart,pieChart,chartData={labels:[],scores:[],thresholds:[]},lastBlockTs=0,allEvents=[],fltState='all',fltBlockedOnly=false,fltText='';
+let sparkHistory={total:[],attacks:[],blocks:[]};
+const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+function beep(){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.type='square';o.frequency.value=880;g.gain.value=0.04;o.start();setTimeout(()=>o.stop(),140)}
+function iso(ts){try{return new Date(ts*1000).toISOString().replace('T',' ').slice(0,19)}catch{return'—'}}
+function tag(t,c){return'<span class="tag '+c+'">'+t+'</span>'}
+function stateTag(s){return s==='ATTACK'?tag('ATTACK','t-bad'):tag('BENIGN','t-ok')}
+function actionTag(a){
+  if(!a||!a.startsWith('BLOCK'))return tag('NONE','t-ok');
+  if(a==='BLOCK-KILL')return tag('BLOCK KILL','t-bad');
+  if(a==='BLOCK-HARD')return tag('BLOCK HARD','t-warn');
+  return tag(a.replace('-',' '),'t-warn');
+}
+function scoreCell(s){
+  const v=(s??0).toFixed(3);
+  const c=s>=0.9?'var(--red)':s>=0.7?'var(--amber)':'var(--green)';
+  const bg=s>=0.9?'rgba(239,68,68,':s>=0.7?'rgba(245,158,11,':'rgba(16,185,129,';
+  const w=Math.round(s*100);
+  return'<td class="score-cell"><div class="score-bar" style="width:'+w+'%;background:'+bg+'.15)"></div><span class="score-val" style="color:'+c+'">'+v+'</span></td>';
+}
+function reasonHtml(r){return r?'<span class="reason" title="'+r.replace(/"/g,'&quot;')+'">'+r+'</span>':'<span style="color:var(--text3)">—</span>'}
+function threatHtml(t){
+  if(!t||(!t.country&&!t.threat))return'<span style="color:var(--text3)">—</span>';
+  let h='';if(t.flag)h+=t.flag+' ';if(t.country)h+='<span style="color:var(--text2)">'+t.country+'</span> ';if(t.threat)h+=tag(t.threat,'t-bad');
+  return h;
+}
+function rowHtml(e){
+  return'<tr><td>'+iso(e.ts)+'</td><td>'+e.index+'</td>'+scoreCell(e.score)+'<td>'+stateTag(e.state)+'</td><td>'+threatHtml(e.threat)+'</td><td>'+reasonHtml(e.reason)+'</td><td>'+(e.pred_class||'—')+'</td><td>'+(e.hits_in_window??0)+'</td><td>'+actionTag(e.action)+'</td></tr>';
+}
+function toast(m){const el=document.getElementById('save_msg');el.textContent=m;setTimeout(()=>el.textContent='',3000)}
+
+function renderSpark(id,data,color){
+  const el=document.getElementById(id);if(!el||!data.length)return;
+  const max=Math.max(...data,1);
+  let h='';for(const v of data.slice(-12))h+='<div class="bar" style="height:'+Math.max(2,v/max*100)+'%;background:'+color+'"></div>';
+  el.innerHTML=h;
+}
+
+let lastCounts={};
+async function refreshCounts(){
+  const j=await(await fetch('/api/counts?window_minutes=60')).json();
+  document.getElementById('mt_total').innerText=j.total??0;
+  document.getElementById('mt_attacks').innerText=j.attacks??0;
+  document.getElementById('mt_blocks').innerText=j.blocks??0;
+  const rate=j.total>0?((j.attacks/j.total)*100).toFixed(1)+'%':'—';
+  document.getElementById('mt_rate').innerText=rate;
+  sparkHistory.total.push(j.total||0);sparkHistory.attacks.push(j.attacks||0);sparkHistory.blocks.push(j.blocks||0);
+  renderSpark('spark_total',sparkHistory.total,'rgba(59,130,246,.5)');
+  renderSpark('spark_attacks',sparkHistory.attacks,'rgba(239,68,68,.5)');
+  renderSpark('spark_blocks',sparkHistory.blocks,'rgba(245,158,11,.5)');
+
+  const chips=document.getElementById('class_chips');
+  if(j.class_counts){let h='';for(const[n,c]of Object.entries(j.class_counts).sort((a,b)=>b[1]-a[1]))h+='<span class="chip">'+n+': <strong>'+c+'</strong></span>';chips.innerHTML=h||'<span class="chip">No data</span>'}
+  const bc=document.getElementById('block_chips');
+  if(j.block_breakdown){let h='';for(const[n,c]of Object.entries(j.block_breakdown).sort((a,b)=>b[1]-a[1]))h+='<span class="chip">'+n.replace('-',' ')+': <strong>'+c+'</strong></span>';bc.innerHTML=h||'<span class="chip">No blocks</span>'}
+
+  // Update pie chart
+  if(j.class_counts&&pieChart){
+    const entries=Object.entries(j.class_counts).sort((a,b)=>b[1]-a[1]);
+    pieChart.data.labels=entries.map(e=>e[0]);
+    pieChart.data.datasets[0].data=entries.map(e=>e[1]);
+    pieChart.update('none');
+  }
+  lastCounts=j;
+}
+
+function passesFilters(e){
+  if(fltState!=='all'&&e.state!==fltState)return false;
+  if(fltBlockedOnly&&!(e.action&&String(e.action).startsWith('BLOCK')))return false;
+  if(fltText){const t=fltText,h=[e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!h.includes(t))return false}
+  return true;
+}
+function renderTable(){let h='';for(const e of allEvents.slice(-200).reverse())if(passesFilters(e))h+=rowHtml(e);document.getElementById('rows').innerHTML=h}
+
+async function refreshEvents(){
+  const q=lastTs?('?since_ts='+encodeURIComponent(lastTs)):'';
+  const j=await(await fetch('/api/events'+q)).json();const list=j.events||[];if(!list.length)return;
+  allEvents=allEvents.concat(list);if(allEvents.length>500)allEvents=allEvents.slice(-500);renderTable();
+  for(const e of list){chartData.labels.push(iso(e.ts));chartData.scores.push(e.score??0);chartData.thresholds.push(e.effective_threshold??null)}
+  if(chartData.labels.length>100){chartData.labels.splice(0,chartData.labels.length-100);chartData.scores.splice(0,chartData.scores.length-100);chartData.thresholds.splice(0,chartData.thresholds.length-100)}
+  chart.data.labels=chartData.labels;chart.data.datasets[0].data=chartData.scores;chart.data.datasets[1].data=chartData.thresholds;chart.update('none');
+  for(const e of list)if(e.action&&String(e.action).startsWith('BLOCK')&&e.ts>lastBlockTs){lastBlockTs=e.ts;beep();document.body.style.boxShadow='inset 0 0 0 3px rgba(239,68,68,.25)';setTimeout(()=>document.body.style.boxShadow='none',300)}
+  lastTs=list[list.length-1].ts;
+}
+
+async function loadConfig(){
+  const j=await(await fetch('/api/config')).json(),d=j.decision||{};
+  document.getElementById('ctl_threshold').value=d.threshold??0.65;
+  document.getElementById('ctl_adaptive').checked=d.use_adaptive??false;
+  document.getElementById('ctl_grace').value=d.grace??3;
+  document.getElementById('ctl_window').value=d.window??5;
+  document.getElementById('ctl_cool').value=d.cooldown_sec??30;
+  const b=document.getElementById('mode_badge');
+  if(d.dry_run){b.textContent='DEMO MODE';b.className='badge badge-demo'}else{b.textContent='LIVE MODE';b.className='badge badge-live'}
+  document.getElementById('mi_thr').textContent=d.threshold??'—';
+  // Model info from /api/model and /health
+  try{
+    const m=await(await fetch('/api/model')).json();
+    if(m.model_type)document.getElementById('mi_type').textContent=m.model_type;
+    if(m.version)document.getElementById('mi_ver').textContent='v'+m.version;
+    if(m.features_count)document.getElementById('mi_feat').textContent=m.features_count;
+    if(m.roc_auc)document.getElementById('mi_auc').textContent=m.roc_auc;
+  }catch{}
+  try{
+    const h=await(await fetch('/health')).json();
+    if(h.model){
+      if(!document.getElementById('mi_ver').textContent||document.getElementById('mi_ver').textContent==='—')document.getElementById('mi_ver').textContent='v'+(h.model.version||'?');
+      if(h.model.roc_auc)document.getElementById('mi_auc').textContent=h.model.roc_auc;
+    }
+  }catch{}
+  try{
+    const e=await(await fetch('/api/v1/ensemble')).json();
+    if(e.ok)document.getElementById('mi_ens').textContent=e.strategy||'—';
+  }catch{document.getElementById('mi_ens').textContent='off'}
+}
+async function saveConfig(){
+  const body={decision:{threshold:parseFloat(document.getElementById('ctl_threshold').value),use_adaptive:document.getElementById('ctl_adaptive').checked,grace:parseInt(document.getElementById('ctl_grace').value),window:parseInt(document.getElementById('ctl_window').value),cooldown_sec:parseInt(document.getElementById('ctl_cool').value)}};
+  const j=await(await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  toast(j.ok?'✓ Config saved — restart decision loop to apply':'Error: '+(j.error||''));
+}
+
+async function launchAttack(type){
+  const el = document.getElementById('sim_msg');
+  el.textContent = 'Launching ' + type.toUpperCase() + ' attack...';
+  try {
+    const res = await fetch('/api/simulate?type=' + type, { method: 'POST' });
+    const j = await res.json();
+    el.textContent = j.ok ? '✓ Attack payload sent!' : 'Error: ' + (j.error||'Failed');
+    setTimeout(()=>el.textContent='', 4000);
+  } catch(err) {
+    el.textContent = 'Network error.';
+    setTimeout(()=>el.textContent='', 4000);
+  }
+}
+
+function setupCharts(){
+  const ctx=document.getElementById('scoreChart').getContext('2d');
+  const grad=ctx.createLinearGradient(0,0,0,200);grad.addColorStop(0,'rgba(59,130,246,.3)');grad.addColorStop(1,'rgba(59,130,246,.0)');
+  chart=new Chart(ctx,{type:'line',data:{labels:[],datasets:[
+    {label:'Score',data:[],borderWidth:2,pointRadius:0,borderColor:'#3b82f6',backgroundColor:grad,fill:true,tension:.35},
+    {label:'Threshold',data:[],borderWidth:2,pointRadius:0,borderColor:'#f59e0b',borderDash:[6,4],fill:false}
+  ]},options:{animation:false,responsive:true,maintainAspectRatio:false,
+    interaction:{intersect:false,mode:'index'},
+    scales:{x:{display:false},y:{min:0,max:1,grid:{color:'rgba(99,130,190,.06)'},ticks:{color:'#64748b',font:{size:11}}}},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}
+  }});
+  const colors=['#3b82f6','#8b5cf6','#ef4444','#f59e0b','#10b981','#06b6d4','#ec4899','#6366f1'];
+  pieChart=new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{labels:[],datasets:[{data:[],backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#94a3b8',padding:12,font:{size:11},usePointStyle:true,pointStyle:'circle'}},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}}
+  });
+}
+
+function tickClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
+async function tick(){tickClock();await refreshCounts();await refreshEvents()}
+
+document.getElementById('btn_save').onclick=saveConfig;
+document.getElementById('btn_download').onclick=()=>window.location='/api/download.csv';
+document.getElementById('btn_clear').onclick=async()=>{if(!confirm('Clear alerts log?'))return;const j=await(await fetch('/api/clear',{method:'POST'})).json();if(j.ok){allEvents=[];lastTs=0;document.getElementById('rows').innerHTML='';chartData.labels=[];chartData.scores=[];chartData.thresholds=[];chart.update();toast('✓ Cleared')}};
+document.getElementById('btn_clear_all').onclick=async()=>{if(!confirm('Reset all data & state?'))return;const j=await(await fetch('/api/clear_all',{method:'POST'})).json();if(j.ok){allEvents=[];lastTs=0;document.getElementById('rows').innerHTML='';chartData.labels=[];chartData.scores=[];chartData.thresholds=[];chart.update();toast('✓ Reset complete')}};
+document.getElementById('flt_state').onchange=e=>{fltState=e.target.value;renderTable()};
+document.getElementById('flt_blocked').onchange=e=>{fltBlockedOnly=!!e.target.checked;renderTable()};
+document.getElementById('flt_text').oninput=e=>{fltText=(e.target.value||'').trim().toLowerCase();renderTable()};
+
+function toggleExpand(){
+  const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');
+  w.classList.toggle('expanded');
+  b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events';
+}
+setupCharts();loadConfig();setInterval(tick,5000);tick();
+
+// WebSocket Integration
+try {
+  const socket = io();
+  socket.on("connect", () => {
+    document.getElementById("health_dot").innerHTML = '<span class="pulse" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span> Live (WebSocket)';
+  });
+  socket.on("disconnect", () => {
+    document.getElementById("health_dot").innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block"></span> Polling mode';
+  });
+  socket.on("new_alert", (e) => {
+    allEvents.push(e); if(allEvents.length>500) allEvents.shift();
+    renderTable();
+    chartData.labels.push(iso(e.ts)); chartData.scores.push(e.score??0); chartData.thresholds.push(e.effective_threshold??null);
+    if(chartData.labels.length>100){chartData.labels.shift();chartData.scores.shift();chartData.thresholds.shift();}
+    chart.update('none');
+    if(e.action&&String(e.action).startsWith('BLOCK')&&e.ts>lastBlockTs){
+      lastBlockTs=e.ts; beep();
+      document.body.style.boxShadow='inset 0 0 0 3px rgba(239,68,68,.25)';
+      setTimeout(()=>document.body.style.boxShadow='none',300);
+    }
+    lastTs=e.ts;
+    refreshCounts(); // Update summary stats
+  });
+  socket.on("config_changed", () => loadConfig());
+} catch(err) {
+  console.log("Socket.IO not loaded, falling back to polling");
+}
+</script>
+</body>
+</html>

@@ -65,6 +65,10 @@ sys.path.insert(0, str(_scripts_dir / "3_inference"))
 sys.path.insert(0, str(_scripts_dir / "4_response"))
 sys.path.insert(0, str(_scripts_dir / "6_threat_intel"))
 from blocker import block_ip as blocker_block_ip
+try:
+    from api_dashboard import emit_new_alert
+except ImportError:
+    emit_new_alert = lambda x: None
 from explainer import RealTimeExplainer
 from threat_intel import ThreatIntel
 from logging_config import get_logger, get_audit_logger
@@ -429,6 +433,7 @@ def log_event(
     ALERT_LOG.parent.mkdir(parents=True, exist_ok=True)
     with ALERT_LOG.open("a", encoding="utf-8") as f:
         f.write(json.dumps(evt) + "\n")
+    emit_new_alert(evt)
 
 
 def log_internal(kind: str, msg: str, **extra) -> None:

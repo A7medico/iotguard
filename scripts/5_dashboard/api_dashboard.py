@@ -53,18 +53,18 @@ Operational notes
       but perfectly usable on localhost for demos and experiments.
 -----------------------------------------------------------------------------
 """
-import os, io, csv, json, time, threading, yaml, sys
+import os, io, csv, json, math, re, time, threading, yaml, sys
+import random
+import subprocess
 from pathlib import Path
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, request, Response, abort, g
 
 # Add scripts directory and subdirectories to path for imports
 _scripts_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(_scripts_dir))
-sys.path.insert(0, str(_scripts_dir / "9_utilities"))
-sys.path.insert(0, str(_scripts_dir / "3_inference"))
-sys.path.insert(0, str(_scripts_dir / "4_response"))
-sys.path.insert(0, str(_scripts_dir / "5_dashboard"))
+from path_setup import configure_paths
+configure_paths()
 from logging_config import get_logger
 
 # Import new enhancement modules
@@ -579,24 +579,225 @@ def api_model():
         pass
     return jsonify({"ok": True, "model": meta})
 
-@app.get("/api/config")
-def api_get_config():
-    """
-    Return the current decision parameters used by the scoring loop.
-    Includes fields that the UI may choose to render read-only (e.g. dry_run).
-    """
-    cfg = load_cfg()
-    decision = cfg.get("decision", {})
+# ============================================================================
+# DEMO SIMULATION CONTROLLER (Start / Stop / Inject)
+# ============================================================================
+_sim_lock = threading.Lock()
+_sim_running = True  # Streaming enabled by default
+_sim_stats = {
+    "rows_written": 0,
+    "attacks_injected": 0,
+    "last_attack_type": None,
+    "start_time": time.time(),
+}
+
+def _generate_sim_benign_row() -> list:
+    """Generate realistic multi-device benign flow."""
+    dev = random.choice(["sensor", "camera", "workstation", "doorlock"])
+    if dev == "sensor":
+        flows = random.randint(2, 6)
+        pkts = flows * random.randint(3, 8)
+        bytes_total = pkts * random.randint(50, 90)
+        syn_ratio = round(random.uniform(0.08, 0.18), 2)
+        ack_ratio = round(random.uniform(0.40, 0.55), 2)
+        fin_ratio = round(random.uniform(0.10, 0.20), 2)
+        rst_ratio = 0.0
+        http_ratio = round(random.uniform(0.10, 0.40), 2)
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(10, 30), 2)
+        iat_mean = round(random.uniform(0.15, 0.45), 6)
+    elif dev == "camera":
+        flows = random.randint(8, 20)
+        pkts = flows * random.randint(30, 80)
+        bytes_total = pkts * random.randint(600, 1100)
+        syn_ratio = round(random.uniform(0.02, 0.06), 2)
+        ack_ratio = round(random.uniform(0.48, 0.55), 2)
+        fin_ratio = round(random.uniform(0.01, 0.04), 2)
+        rst_ratio = 0.0
+        http_ratio = 0.0
+        tcp_ratio = round(random.uniform(0.80, 0.95), 2)
+        proto_div = 2
+        std_bytes = round(random.uniform(80, 180), 2)
+        iat_mean = round(random.uniform(0.005, 0.02), 6)
+    elif dev == "workstation":
+        flows = random.randint(12, 30)
+        pkts = flows * random.randint(10, 25)
+        bytes_total = pkts * random.randint(180, 450)
+        syn_ratio = round(random.uniform(0.10, 0.22), 2)
+        ack_ratio = round(random.uniform(0.38, 0.48), 2)
+        fin_ratio = round(random.uniform(0.08, 0.16), 2)
+        rst_ratio = round(random.uniform(0.01, 0.03), 2)
+        http_ratio = round(random.uniform(0.30, 0.60), 2)
+        tcp_ratio = round(random.uniform(0.90, 0.98), 2)
+        proto_div = 3
+        std_bytes = round(random.uniform(40, 110), 2)
+        iat_mean = round(random.uniform(0.02, 0.08), 6)
+    else:
+        flows = random.randint(1, 4)
+        pkts = flows * random.randint(2, 5)
+        bytes_total = pkts * random.randint(45, 75)
+        syn_ratio = round(random.uniform(0.10, 0.25), 2)
+        ack_ratio = round(random.uniform(0.35, 0.50), 2)
+        fin_ratio = round(random.uniform(0.12, 0.25), 2)
+        rst_ratio = 0.0
+        http_ratio = 0.0
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(5, 20), 2)
+        iat_mean = round(random.uniform(0.20, 0.60), 6)
+        
+    mean_bytes = int(bytes_total / max(flows, 1))
+    return [flows, bytes_total, pkts, syn_ratio, mean_bytes, ack_ratio, fin_ratio, rst_ratio, http_ratio, tcp_ratio, proto_div, std_bytes, iat_mean]
+
+def _generate_sim_attack_row(attack_type: str = "syn") -> list:
+    """Generate attack pattern row."""
+    t = (attack_type or "syn").lower()
+    if "udp" in t:
+        flows = random.randint(80, 200)
+        pkts = flows * random.randint(15, 40)
+        bytes_total = pkts * random.randint(400, 750)
+        syn_ratio = 0.0
+        ack_ratio = 0.0
+        fin_ratio = 0.0
+        rst_ratio = 0.0
+        http_ratio = 0.0
+        tcp_ratio = 0.0
+        proto_div = 1
+        std_bytes = round(random.uniform(0, 10), 2)
+        iat_mean = round(random.uniform(0.00005, 0.0004), 6)
+    elif "scan" in t or "port" in t:
+        flows = random.randint(50, 120)
+        pkts = flows * 2
+        bytes_total = pkts * 44
+        syn_ratio = round(random.uniform(0.75, 0.95), 2)
+        ack_ratio = 0.0
+        fin_ratio = 0.0
+        rst_ratio = round(random.uniform(0.20, 0.50), 2)
+        http_ratio = 0.0
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(0, 2), 2)
+        iat_mean = round(random.uniform(0.001, 0.008), 6)
+    elif "http" in t or "slow" in t:
+        flows = random.randint(30, 70)
+        pkts = flows * random.randint(10, 25)
+        bytes_total = pkts * random.randint(250, 500)
+        syn_ratio = round(random.uniform(0.20, 0.35), 2)
+        ack_ratio = round(random.uniform(0.38, 0.48), 2)
+        fin_ratio = round(random.uniform(0.12, 0.25), 2)
+        rst_ratio = round(random.uniform(0.02, 0.06), 2)
+        http_ratio = round(random.uniform(0.85, 1.0), 2)
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(25, 75), 2)
+        iat_mean = round(random.uniform(0.001, 0.006), 6)
+    elif "exfil" in t:
+        flows = random.randint(4, 18)
+        pkts = flows * random.randint(50, 120)
+        bytes_total = pkts * random.randint(800, 1350)
+        syn_ratio = round(random.uniform(0.04, 0.12), 2)
+        ack_ratio = round(random.uniform(0.42, 0.54), 2)
+        fin_ratio = round(random.uniform(0.02, 0.06), 2)
+        rst_ratio = 0.0
+        http_ratio = round(random.uniform(0.20, 0.60), 2)
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(10, 35), 2)
+        iat_mean = round(random.uniform(0.002, 0.015), 6)
+    else:  # SYN flood / Botnet
+        flows = random.randint(60, 150)
+        pkts = flows * random.randint(3, 6)
+        bytes_total = pkts * random.randint(54, 66)
+        syn_ratio = round(random.uniform(0.85, 0.99), 2)
+        ack_ratio = 0.0
+        fin_ratio = 0.0
+        rst_ratio = 0.0
+        http_ratio = 0.0
+        tcp_ratio = 1.0
+        proto_div = 1
+        std_bytes = round(random.uniform(0, 5), 2)
+        iat_mean = round(random.uniform(0.0001, 0.0008), 6)
+        
+    mean_bytes = int(bytes_total / max(flows, 1))
+    return [flows, bytes_total, pkts, syn_ratio, mean_bytes, ack_ratio, fin_ratio, rst_ratio, http_ratio, tcp_ratio, proto_div, std_bytes, iat_mean]
+
+def _write_feature_row(row: list) -> None:
+    """Append a single feature row into data/features.csv."""
+    features_csv = Path("data/features.csv")
+    features_csv.parent.mkdir(parents=True, exist_ok=True)
+    header = "flows,bytes_total,pkts_total,syn_ratio,mean_bytes_flow,ack_ratio,fin_ratio,rst_ratio,http_ratio,tcp_ratio,protocol_diversity,std_bytes,iat_mean\n"
+    if not features_csv.exists() or features_csv.stat().st_size == 0:
+        features_csv.write_text(header, encoding="utf-8")
+    with features_csv.open("a", encoding="utf-8") as f:
+        f.write("{},{},{},{:.2f},{},{:.2f},{:.2f},{:.2f},{:.2f},{:.2f},{},{:.2f},{:.6f}\n".format(*row))
+
+def _sim_background_loop():
+    """Background simulator thread generating normal stream."""
+    while True:
+        with _sim_lock:
+            running = _sim_running
+        if running:
+            try:
+                # 98% clean benign device telemetry, 2% rare baseline anomaly
+                is_attack = random.random() < 0.02
+                row = _generate_sim_attack_row("syn") if is_attack else _generate_sim_benign_row()
+                with _sim_lock:
+                    _write_feature_row(row)
+                    _sim_stats["rows_written"] += 1
+            except Exception as e:
+                logger.debug(f"Simulator error: {e}")
+        time.sleep(1.0)
+
+# Start simulator thread once on import
+_sim_thread = threading.Thread(target=_sim_background_loop, daemon=True)
+_sim_thread.start()
+
+@app.get("/api/demo/status")
+def api_demo_status():
+    """Return status of live demo simulator."""
+    with _sim_lock:
+        return jsonify({
+            "ok": True,
+            "running": _sim_running,
+            "stats": dict(_sim_stats),
+            "server_time": now_ts()
+        })
+
+@app.post("/api/demo/start")
+def api_demo_start():
+    """Start / resume the live feature stream."""
+    global _sim_running
+    with _sim_lock:
+        _sim_running = True
+    logger.info("Demo Simulator Started by user")
+    return jsonify({"ok": True, "message": "Demo stream running", "running": True})
+
+@app.post("/api/demo/stop")
+def api_demo_stop():
+    """Stop / pause the live feature stream."""
+    global _sim_running
+    with _sim_lock:
+        _sim_running = False
+    logger.info("Demo Simulator Paused by user")
+    return jsonify({"ok": True, "message": "Demo stream stopped", "running": False})
+
+@app.post("/api/demo/inject")
+def api_demo_inject():
+    """Immediately inject a chosen cyber attack scenario."""
+    data = request.get_json(silent=True) or {}
+    attack_type = data.get("type", "syn")
+    row = _generate_sim_attack_row(attack_type)
+    with _sim_lock:
+        _write_feature_row(row)
+        _sim_stats["attacks_injected"] += 1
+        _sim_stats["last_attack_type"] = attack_type
+    logger.info(f"Injected attack pattern: {attack_type}")
     return jsonify({
         "ok": True,
-        "decision": {
-            "threshold":     float(decision.get("threshold", 0.65)),
-            "grace":         int(decision.get("grace", 3)),
-            "window":        int(decision.get("window", 5)),
-            "cooldown_sec":  int(decision.get("cooldown_sec", 30)),
-            "use_adaptive":  bool(decision.get("use_adaptive", False)),
-            "dry_run":       bool(decision.get("dry_run", True)),
-        }
+        "message": f"Injected {attack_type} attack burst into stream",
+        "attack_type": attack_type,
+        "features": row
     })
 
 def _validate_config(dec: dict) -> tuple[dict, list[str]]:
@@ -780,34 +981,400 @@ def api_health():
     })
 
 
-import subprocess
+
+
+# =============================================================================
+# NEW ENHANCED API ENDPOINTS
+# =============================================================================
+
+
+@app.get("/api/topology")
+def api_topology():
+    """
+    Return simulated network topology with devices and connections.
+    Used by the canvas-based network visualization in the dashboard.
+    """
+    # Build a set of device nodes (mix of IoT and IT)
+    devices = [
+        {"id": "gw", "label": "Gateway Router", "type": "router", "x": 0.5, "y": 0.15},
+        {"id": "fw", "label": "IoTGuard Firewall", "type": "firewall", "x": 0.5, "y": 0.35},
+        {"id": "cam1", "label": "IP Camera 1", "type": "iot", "x": 0.15, "y": 0.6},
+        {"id": "cam2", "label": "IP Camera 2", "type": "iot", "x": 0.3, "y": 0.7},
+        {"id": "sensor1", "label": "Temp Sensor", "type": "iot", "x": 0.1, "y": 0.85},
+        {"id": "thermo", "label": "Smart Thermostat", "type": "iot", "x": 0.25, "y": 0.9},
+        {"id": "lock", "label": "Smart Lock", "type": "iot", "x": 0.42, "y": 0.8},
+        {"id": "hub", "label": "IoT Hub", "type": "iot", "x": 0.35, "y": 0.55},
+        {"id": "srv", "label": "File Server", "type": "it", "x": 0.7, "y": 0.6},
+        {"id": "ws1", "label": "Workstation", "type": "it", "x": 0.85, "y": 0.7},
+        {"id": "ws2", "label": "Laptop", "type": "it", "x": 0.75, "y": 0.85},
+        {"id": "nas", "label": "NAS Storage", "type": "it", "x": 0.9, "y": 0.55},
+    ]
+    # Connections (from → to)
+    connections = [
+        {"from": "gw", "to": "fw", "active": True},
+        {"from": "fw", "to": "hub", "active": True},
+        {"from": "fw", "to": "srv", "active": True},
+        {"from": "hub", "to": "cam1", "active": True},
+        {"from": "hub", "to": "cam2", "active": True},
+        {"from": "hub", "to": "sensor1", "active": True},
+        {"from": "hub", "to": "thermo", "active": True},
+        {"from": "hub", "to": "lock", "active": True},
+        {"from": "srv", "to": "ws1", "active": True},
+        {"from": "srv", "to": "ws2", "active": True},
+        {"from": "srv", "to": "nas", "active": True},
+    ]
+
+    # Check recent alerts for active attacks — mark connections as attacked
+    recent = read_last_n(20)
+    attack_count = sum(1 for e in recent if e.get("state") == "ATTACK")
+    if attack_count > 0:
+        # Mark gateway→firewall as under attack
+        connections[0]["attack"] = True
+        # Randomly mark some IoT connections as attacked
+        for c in connections[2:7]:
+            if random.random() < 0.4:
+                c["attack"] = True
+
+    return jsonify({
+        "ok": True,
+        "devices": devices,
+        "connections": connections,
+        "attack_active": attack_count > 0,
+    })
+
+
+@app.get("/api/top_attackers")
+def api_top_attackers():
+    """
+    Return top source IPs ranked by attack frequency.
+    Includes country/flag info from threat_intel data embedded in alerts.
+    """
+    ip_stats = {}
+    for evt in _iter_alerts() or []:
+        if evt.get("state") != "ATTACK":
+            continue
+        ip = evt.get("src_ip") or evt.get("threat", {}).get("ip")
+        if not ip:
+            # Generate a deterministic pseudo-IP from the event index
+            idx = evt.get("index", 0)
+            ip = f"192.168.{(idx * 7 + 3) % 256}.{(idx * 13 + 11) % 256}"
+        if ip not in ip_stats:
+            ip_stats[ip] = {
+                "ip": ip,
+                "count": 0,
+                "blocked": False,
+                "country": "",
+                "flag": "",
+                "threat": "",
+                "last_seen": 0,
+            }
+        ip_stats[ip]["count"] += 1
+        ip_stats[ip]["last_seen"] = max(ip_stats[ip]["last_seen"], evt.get("ts", 0))
+        action = str(evt.get("action") or "")
+        if action.startswith("BLOCK"):
+            ip_stats[ip]["blocked"] = True
+        # Extract threat intel if available
+        threat = evt.get("threat")
+        if threat and isinstance(threat, dict):
+            ip_stats[ip]["country"] = threat.get("country", "")
+            ip_stats[ip]["flag"] = threat.get("flag", "")
+            ip_stats[ip]["threat"] = threat.get("threat", "")
+
+    # Sort by count descending, return top 10
+    ranked = sorted(ip_stats.values(), key=lambda x: x["count"], reverse=True)[:10]
+    return jsonify({"ok": True, "attackers": ranked})
+
+
+@app.get("/api/shap_detail")
+def api_shap_detail():
+    """
+    Return SHAP-style feature contribution data for a specific event.
+    Parses the 'reason' field from alerts to extract feature contributions.
+    """
+    index = request.args.get("index", type=int)
+    if index is None:
+        return jsonify({"ok": False, "error": "index parameter required"}), 400
+
+    for evt in _iter_alerts() or []:
+        if evt.get("index") == index:
+            reason = evt.get("reason", "")
+            contributions = []
+            if reason:
+                # Parse "feature (+value), feature (+value)" format
+                matches = re.findall(r'(\w+)\s*\(([+\-][\d.]+)\)', reason)
+                for feat_name, val_str in matches:
+                    contributions.append({
+                        "feature": feat_name,
+                        "value": float(val_str),
+                    })
+            # Sort by absolute value descending
+            contributions.sort(key=lambda x: abs(x["value"]), reverse=True)
+            return jsonify({
+                "ok": True,
+                "index": index,
+                "score": evt.get("score"),
+                "state": evt.get("state"),
+                "pred_class": evt.get("pred_class"),
+                "contributions": contributions,
+            })
+    return jsonify({"ok": False, "error": "Event not found"}), 404
+
+
+@app.get("/api/timeline_heatmap")
+def api_timeline_heatmap():
+    """
+    Return hourly-bucketed attack counts for heatmap rendering.
+    Returns data for the last 7 days, broken into hourly cells.
+    """
+    now = now_ts()
+    days = int(request.args.get("days", 7))
+    cutoff = now - (days * 86400)
+    # Buckets: [day_index][hour] = count
+    buckets = {}
+    for evt in _iter_alerts() or []:
+        ts = evt.get("ts", 0)
+        if ts < cutoff:
+            continue
+        if evt.get("state") != "ATTACK":
+            continue
+        dt = datetime.utcfromtimestamp(ts)
+        day_key = dt.strftime("%Y-%m-%d")
+        hour = dt.hour
+        if day_key not in buckets:
+            buckets[day_key] = [0] * 24
+        buckets[day_key][hour] += 1
+
+    # Build ordered list of day data
+    result = []
+    for i in range(days):
+        dt = datetime.utcfromtimestamp(now - (days - 1 - i) * 86400)
+        day_key = dt.strftime("%Y-%m-%d")
+        day_label = dt.strftime("%a")
+        hours = buckets.get(day_key, [0] * 24)
+        result.append({"date": day_key, "label": day_label, "hours": hours})
+
+    return jsonify({"ok": True, "days": result})
+
+
+@app.get("/api/feature_radar")
+def api_feature_radar():
+    """
+    Return normalized feature values for the latest (or specified) event.
+    Used by the radar/spider chart in the dashboard.
+    """
+    # Read feature names from config
+    cfg = load_cfg()
+    features = cfg.get("features", [
+        "flows", "bytes_total", "pkts_total", "syn_ratio", "mean_bytes_flow",
+        "ack_ratio", "fin_ratio", "rst_ratio", "http_ratio", "tcp_ratio",
+        "protocol_diversity", "std_bytes", "iat_mean"
+    ])
+
+    # Read the latest feature row from features.csv
+    csv_path = DATA_DIR / "features.csv"
+    if not csv_path.exists():
+        return jsonify({"ok": True, "features": features, "values": [0] * len(features)})
+
+    try:
+        import pandas as pd
+        df = pd.read_csv(csv_path, encoding="utf-8")
+        if df.empty:
+            return jsonify({"ok": True, "features": features, "values": [0] * len(features)})
+
+        row = df.iloc[-1]
+        raw_values = []
+        for f in features:
+            v = float(row.get(f, 0)) if f in row.index else 0.0
+            raw_values.append(v)
+
+        # Normalize to 0-1 range using column min/max from entire dataframe
+        norm_values = []
+        for i, f in enumerate(features):
+            if f in df.columns:
+                col = pd.to_numeric(df[f], errors="coerce")
+                cmin = col.min()
+                cmax = col.max()
+                if cmax > cmin:
+                    norm_values.append(round((raw_values[i] - cmin) / (cmax - cmin), 3))
+                else:
+                    norm_values.append(0.5)
+            else:
+                norm_values.append(0)
+
+        return jsonify({
+            "ok": True,
+            "features": features,
+            "values": norm_values,
+            "raw_values": [round(v, 4) for v in raw_values],
+        })
+    except Exception as e:
+        return jsonify({"ok": True, "features": features, "values": [0] * len(features), "error": str(e)})
+
+
+# =============================================================================
+# ATTACK SIMULATION (Feature-Injection Based — No Scapy Required)
+# =============================================================================
+
+# Attack signature profiles: realistic feature patterns for each attack type
+_ATTACK_PROFILES = {
+    "syn": {
+        "name": "SYN Flood",
+        "rows": 8,
+        "gen": lambda: {
+            "flows": random.randint(40, 80),
+            "bytes_total": random.randint(20000, 60000),
+            "pkts_total": random.randint(200, 500),
+            "syn_ratio": round(random.uniform(0.85, 0.99), 2),
+            "mean_bytes_flow": random.randint(300, 800),
+            "ack_ratio": 0.0,
+            "fin_ratio": 0.0,
+            "rst_ratio": round(random.uniform(0.0, 0.1), 2),
+            "http_ratio": 0.0,
+            "tcp_ratio": 1.0,
+            "protocol_diversity": 1,
+            "std_bytes": round(random.uniform(0, 10), 2),
+            "iat_mean": round(random.uniform(0.0001, 0.002), 6),
+        },
+    },
+    "udp": {
+        "name": "UDP Flood",
+        "rows": 8,
+        "gen": lambda: {
+            "flows": random.randint(50, 100),
+            "bytes_total": random.randint(40000, 120000),
+            "pkts_total": random.randint(400, 1000),
+            "syn_ratio": 0.0,
+            "mean_bytes_flow": random.randint(600, 1200),
+            "ack_ratio": 0.0,
+            "fin_ratio": 0.0,
+            "rst_ratio": 0.0,
+            "http_ratio": 0.0,
+            "tcp_ratio": 0.0,
+            "protocol_diversity": 1,
+            "std_bytes": round(random.uniform(0, 20), 2),
+            "iat_mean": round(random.uniform(0.0001, 0.001), 6),
+        },
+    },
+    "http": {
+        "name": "HTTP Slowloris",
+        "rows": 6,
+        "gen": lambda: {
+            "flows": random.randint(30, 60),
+            "bytes_total": random.randint(5000, 15000),
+            "pkts_total": random.randint(100, 300),
+            "syn_ratio": round(random.uniform(0.3, 0.5), 2),
+            "mean_bytes_flow": random.randint(100, 300),
+            "ack_ratio": round(random.uniform(0.1, 0.3), 2),
+            "fin_ratio": 0.0,
+            "rst_ratio": 0.0,
+            "http_ratio": round(random.uniform(0.8, 1.0), 2),
+            "tcp_ratio": 1.0,
+            "protocol_diversity": 1,
+            "std_bytes": round(random.uniform(50, 200), 2),
+            "iat_mean": round(random.uniform(0.5, 5.0), 6),
+        },
+    },
+    "scan": {
+        "name": "Port Scan",
+        "rows": 5,
+        "gen": lambda: {
+            "flows": random.randint(60, 150),
+            "bytes_total": random.randint(3000, 10000),
+            "pkts_total": random.randint(120, 300),
+            "syn_ratio": round(random.uniform(0.7, 0.95), 2),
+            "mean_bytes_flow": random.randint(40, 80),
+            "ack_ratio": 0.0,
+            "fin_ratio": 0.0,
+            "rst_ratio": round(random.uniform(0.5, 0.9), 2),
+            "http_ratio": 0.0,
+            "tcp_ratio": 1.0,
+            "protocol_diversity": 1,
+            "std_bytes": round(random.uniform(0, 5), 2),
+            "iat_mean": round(random.uniform(0.001, 0.01), 6),
+        },
+    },
+    "botnet": {
+        "name": "IoT Botnet C2",
+        "rows": 6,
+        "gen": lambda: {
+            "flows": random.randint(15, 35),
+            "bytes_total": random.randint(8000, 25000),
+            "pkts_total": random.randint(60, 150),
+            "syn_ratio": round(random.uniform(0.4, 0.7), 2),
+            "mean_bytes_flow": random.randint(200, 600),
+            "ack_ratio": round(random.uniform(0.2, 0.5), 2),
+            "fin_ratio": round(random.uniform(0.0, 0.1), 2),
+            "rst_ratio": 0.0,
+            "http_ratio": round(random.uniform(0.0, 0.2), 2),
+            "tcp_ratio": round(random.uniform(0.7, 1.0), 2),
+            "protocol_diversity": random.randint(1, 2),
+            "std_bytes": round(random.uniform(100, 500), 2),
+            "iat_mean": round(random.uniform(0.01, 0.1), 6),
+        },
+    },
+    "exfil": {
+        "name": "Data Exfiltration",
+        "rows": 5,
+        "gen": lambda: {
+            "flows": random.randint(3, 8),
+            "bytes_total": random.randint(100000, 500000),
+            "pkts_total": random.randint(500, 2000),
+            "syn_ratio": round(random.uniform(0.05, 0.15), 2),
+            "mean_bytes_flow": random.randint(15000, 60000),
+            "ack_ratio": round(random.uniform(0.3, 0.6), 2),
+            "fin_ratio": round(random.uniform(0.1, 0.3), 2),
+            "rst_ratio": 0.0,
+            "http_ratio": round(random.uniform(0.0, 0.3), 2),
+            "tcp_ratio": 1.0,
+            "protocol_diversity": random.randint(1, 2),
+            "std_bytes": round(random.uniform(500, 5000), 2),
+            "iat_mean": round(random.uniform(0.001, 0.01), 6),
+        },
+    },
+}
+
+FEATURES_HEADER = "flows,bytes_total,pkts_total,syn_ratio,mean_bytes_flow,ack_ratio,fin_ratio,rst_ratio,http_ratio,tcp_ratio,protocol_diversity,std_bytes,iat_mean\n"
+
 
 @app.post("/api/simulate")
 def api_simulate():
+    """
+    Inject attack-pattern feature rows directly into data/features.csv.
+    This replaces the old subprocess-based simulator that required Scapy.
+    The decision loop will pick up these rows and score them.
+    """
     attack_type = request.args.get("type", "syn")
-    type_map = {
-        "syn": "syn_flood",
-        "udp": "udp_flood",
-        "http": "http_flood",
-        "scan": "port_scan"
-    }
-    real_type = type_map.get(attack_type, "syn_flood")
-    target_ip = os.environ.get("IOTGUARD_SIM_TARGET", "127.0.0.1")
-    sim_script = str(_scripts_dir / "8_simulation" / "attack_simulator.py")
-    
-    try:
-        env = os.environ.copy()
-        env["PYTHONIOENCODING"] = "utf-8"
-        subprocess.Popen(
-            [sys.executable, sim_script, "--target", target_ip, "--attack", real_type, "--duration", "10"],
-            env=env,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        return jsonify({"ok": True, "message": f"Started {real_type} against {target_ip}"})
-    except Exception as e:
-        logger.error(f"Failed to launch simulator: {e}")
-        return jsonify({"ok": False, "error": str(e)}), 500
+    profile = _ATTACK_PROFILES.get(attack_type)
+    if not profile:
+        return jsonify({"ok": False, "error": f"Unknown attack type: {attack_type}. Available: {list(_ATTACK_PROFILES.keys())}"}), 400
+
+    csv_path = DATA_DIR / "features.csv"
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Ensure CSV has header
+    if not csv_path.exists() or csv_path.stat().st_size == 0:
+        csv_path.write_text(FEATURES_HEADER, encoding="utf-8")
+
+    # Generate and append attack rows
+    rows_written = 0
+    with csv_path.open("a", encoding="utf-8") as f:
+        for _ in range(profile["rows"]):
+            row_data = profile["gen"]()
+            line = ",".join(str(row_data[k]) for k in [
+                "flows", "bytes_total", "pkts_total", "syn_ratio", "mean_bytes_flow",
+                "ack_ratio", "fin_ratio", "rst_ratio", "http_ratio", "tcp_ratio",
+                "protocol_diversity", "std_bytes", "iat_mean"
+            ])
+            f.write(line + "\n")
+            rows_written += 1
+
+    logger.info(f"Simulated {profile['name']}: injected {rows_written} attack rows into features.csv")
+    return jsonify({
+        "ok": True,
+        "attack": profile["name"],
+        "rows_injected": rows_written,
+        "message": f"Injected {rows_written} {profile['name']} attack rows. Decision loop will score them shortly."
+    })
 
 @app.post("/api/clear")
 def api_clear():
@@ -876,631 +1443,6 @@ def dashboard():
     # Load dashboard HTML from template file
     _tmpl = Path(__file__).parent / "templates" / "index.html"
     html = _tmpl.read_text(encoding="utf-8")
-    _old_html = """
-<!doctype html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>IoTGuard — Live Alerts</title>
-<meta name="viewport" content="width=device-width, initial-scale=1"/>
-<link rel="icon" href="data:,">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-<style>
-  :root {
-    --bg: #020617;
-    --ink: #e5e7eb;
-    --muted: #9ca3af;
-    --row: #020617;
-    --panel: rgba(15,23,42,0.95);
-    --accent: #38bdf8;
-    --accent2: #a855f7;
-    --good: #4ade80;
-    --warn: #facc15;
-    --bad: #f97373;
-  }
-  * { box-sizing: border-box; }
-  body {
-    font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    margin: 0;
-    color: var(--ink);
-    background:
-      radial-gradient(1200px 600px at 80% -10%, #1e293b 0%, transparent 40%),
-      radial-gradient(800px 500px at -10% 20%, #0ea5e9 0%, transparent 35%),
-      linear-gradient(180deg, #020617 0%, #020617 55%, #020617 100%);
-    min-height: 100vh;
-  }
-  .nav {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-    backdrop-filter: blur(10px);
-    background: linear-gradient(90deg, rgba(15,23,42,.9), rgba(15,23,42,.7));
-    border-bottom: 1px solid rgba(148,163,184,.35);
-    padding: 10px 20px;
-  }
-  .brand {
-    font-weight: 800;
-    letter-spacing: .03em;
-    font-size: 18px;
-  }
-  .container {
-    max-width: 1180px;
-    margin: 0 auto;
-    padding: 18px 20px;
-  }
-  .hero h1 {
-    margin: 8px 0 6px;
-    font-size: 36px;
-    line-height: 1.1;
-  }
-  .hero .grad {
-    background: linear-gradient(110deg, var(--accent), var(--accent2));
-    -webkit-background-clip:text;
-    background-clip:text;
-    color: transparent;
-  }
-  .sub {
-    color: var(--muted);
-    margin-top: 4px;
-    font-size: 14px;
-  }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0,1fr));
-    gap: 12px;
-  }
-  .card {
-    background: radial-gradient(circle at 0% 0%, rgba(56,189,248,0.14), transparent 55%), var(--panel);
-    padding: 14px 16px;
-    border-radius: 16px;
-    box-shadow: 0 18px 45px rgba(0,0,0,.6);
-    border: 1px solid rgba(148,163,184,.2);
-    transition: transform .14s ease-out, box-shadow .14s ease-out, border-color .14s ease-out;
-  }
-  .card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 24px 55px rgba(0,0,0,.75);
-    border-color: rgba(148,163,184,.45);
-  }
-
-  .row {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-    align-items: center;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 10px;
-    border-radius: 12px;
-    overflow: hidden;
-    background: rgba(15,23,42,0.9);
-  }
-  thead {
-    background: linear-gradient(90deg, rgba(15,23,42,0.95), rgba(15,23,42,0.8));
-  }
-  th, td {
-    padding: 9px 11px;
-    border-bottom: 1px solid rgba(30,64,175,0.45);
-    font-size: 13px;
-    white-space: nowrap;
-  }
-  th {
-    text-align: left;
-    color: var(--muted);
-    font-weight: 600;
-  }
-  tbody tr:nth-child(even) {
-    background-color: rgba(15,23,42,0.8);
-  }
-  tbody tr:nth-child(odd) {
-    background-color: rgba(15,23,42,0.6);
-  }
-  tbody tr:hover {
-    background-color: rgba(30,64,175,0.45);
-  }
-
-  .tag {
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-weight: 600;
-    font-size: 11px;
-  }
-  .ok   { background: #064e3b; color: var(--good); }
-  .warn { background: #3f2a0a; color: var(--warn); }
-  .bad  { background: #450a0a; color: var(--bad); }
-
-  .footer {
-    color: var(--muted);
-    font-size: 12px;
-    margin-top: 10px;
-  }
-  .btn {
-    background: radial-gradient(circle at 0% 0%, rgba(56,189,248,0.2), transparent 60%), #020617;
-    color: #e5e7eb;
-    border: 1px solid #1f2937;
-    padding: 8px 12px;
-    border-radius: 999px;
-    cursor: pointer;
-    font-size: 13px;
-  }
-  .btn:hover {
-    filter: brightness(1.1);
-    border-color: #38bdf8;
-  }
-  input[type=number] {
-    width: 90px;
-    background: #020617;
-    color: #e5e7eb;
-    border: 1px solid #1f2937;
-    border-radius: 999px;
-    padding: 7px 10px;
-    font-size: 13px;
-  }
-  input[type=text] {
-    background: #020617;
-    color: #e5e7eb;
-    border: 1px solid #1f2937;
-    border-radius: 999px;
-    padding: 7px 10px;
-    font-size: 13px;
-  }
-  select {
-    background: #020617;
-    color: #e5e7eb;
-    border: 1px solid #1f2937;
-    border-radius: 999px;
-    padding: 4px 8px;
-    font-size: 13px;
-  }
-  .chart-box { height: 240px; }
-  .chips {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-  .chip {
-    background: rgba(15,23,42,.9);
-    border: 1px solid rgba(148,163,184,.25);
-    color: #e5e7eb;
-    padding: 6px 10px;
-    border-radius: 999px;
-    font-size: 12px;
-  }
-
-  @media (max-width: 900px) {
-    .grid {
-      grid-template-columns: repeat(2, minmax(0,1fr));
-    }
-  }
-  @media (max-width: 640px) {
-    .container {
-      padding: 14px 14px;
-    }
-    .hero h1 {
-      font-size: 26px;
-    }
-    .grid {
-      grid-template-columns: minmax(0,1fr);
-    }
-    table {
-      font-size: 12px;
-    }
-    th, td {
-      padding: 7px 8px;
-    }
-  }
-</style>
-</head>
-<body>
-  <div class="nav">
-  <div class="container">
-      <span class="brand">IoTGuard</span>
-      <span id="mode_badge" class="tag warn" style="margin-left:10px;font-size:11px;">mode</span>
-  </div>
-  </div>
-  <div class="container hero">
-    <h1><span class="grad">IoTGuard — Live Alerts</span></h1>
-    <div class="sub">Realtime scoring, per-class insights, and controls.</div>
-  </div>
-  <div class="container grid">
-    <div class="card"><div>Last 60 min — Total</div><div id="mt_total" style="font-size:24px;font-weight:700">0</div></div>
-    <div class="card"><div>Last 60 min — Attacks</div><div id="mt_attacks" style="font-size:24px;font-weight:700;color:#f28f8f">0</div></div>
-    <div class="card"><div>Last 60 min — Blocks</div><div id="mt_blocks" style="font-size:24px;font-weight:700;color:#f2d28f">0</div></div>
-  </div>
-
-  <div class="container" style="margin-top:12px;">
-    <div class="card">
-    <div class="row" style="justify-content:space-between;">
-      <div class="row">
-        <div style="font-weight:700;">Controls</div>
-        <div class="row" style="gap:6px;margin-left:14px;">
-          <label>threshold <input id="ctl_threshold" type="number" step="0.01" min="0" max="1"/></label>
-          <label>adaptive <input id="ctl_adaptive" type="checkbox" style="width:auto;transform:scale(1.2);margin-right:6px;"/></label>
-          <label>grace <input id="ctl_grace" type="number" min="1" max="20"/></label>
-          <label>window <input id="ctl_window" type="number" min="1" max="50"/></label>
-          <label>cooldown <input id="ctl_cool" type="number" min="0" max="3600"/></label>
-          <button class="btn" id="btn_save">Save</button>
-          <div id="save_msg" class="footer"></div>
-        </div>
-      </div>
-      <div class="row">
-        <button class="btn" id="btn_download">Download CSV</button>
-        <button class="btn" id="btn_clear">Clear Log</button>
-        <button class="btn" id="btn_clear_all">Clear All</button>
-        <div id="clock" class="footer">—</div>
-      </div>
-    </div>
-    </div>
-  </div>
-
-  <div class="container">
-    <div class="card chart-box"><canvas id="scoreChart" style="width:100%;height:100%;"></canvas></div>
-  </div>
-
-  <div class="container" style="margin-top:12px;">
-    <div class="card" style="margin-bottom:12px;">
-      <div style="font-weight:700; margin-bottom:6px;">Per-class Counts (last 60m)</div>
-      <div id="class_chips" class="chips"></div>
-      <div style="font-weight:700; margin:10px 0 6px;">Block severities (last 60m)</div>
-      <div id="block_chips" class="chips"></div>
-    </div>
-    <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;">
-      <div style="font-weight:700;">Recent Events</div>
-      <div class="row" style="gap:8px;font-size:12px;">
-        <label>state
-          <select id="flt_state" style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:999px;padding:4px 8px;">
-            <option value="all">all</option>
-            <option value="ATTACK">ATTACK</option>
-            <option value="benign">benign</option>
-          </select>
-        </label>
-        <label><input id="flt_blocked" type="checkbox" style="width:auto;transform:scale(1.1);margin-right:4px;"/>only blocked</label>
-        <label>search
-          <input id="flt_text" type="text" placeholder="pred / reason / threat" style="background:#0f172a;color:#e5e7eb;border:1px solid #334155;border-radius:999px;padding:4px 8px;min-width:180px;"/>
-        </label>
-      </div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-            <th>Time (UTC)</th>
-            <th>Index</th>
-            <th>Score</th>
-            <th>State</th>
-            <th>Threat Intel</th>
-            <th>Reason (XAI)</th>
-            <th>Pred</th>
-            <th>Window Hits</th>
-            <th>Action</th>
-        </tr>
-      </thead>
-      <tbody id="rows"></tbody>
-    </table>
-    </div>
-  </div>
-
-  <div class="footer">Auto-refreshing every 2s. Backed by alerts.jsonl.</div>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script>
-let lastTs = null;
-let chart, chartData = {labels: [], scores: [], thresholds: []};
-let lastBlockTs = 0;
-let modelMeta = { classes: null, benign_index: null };
-let allEvents = [];
-let fltState = 'all';
-let fltBlockedOnly = false;
-let fltText = '';
-
-// --- audio alert for BLOCK ---
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-function beep() {
-  const o = audioCtx.createOscillator();
-  const g = audioCtx.createGain();
-  o.connect(g); g.connect(audioCtx.destination);
-  o.type = 'square'; o.frequency.value = 880;
-  g.gain.value = 0.05;
-  o.start(); setTimeout(()=>{ o.stop(); }, 180);
-}
-
-// --- utils ---
-function iso(ts){ try{ return new Date(ts*1000).toISOString(); }catch(e){ return '—'; } }
-function tag(text, cls){ return '<span class="tag '+cls+'">'+text+'</span>'; }
-function stateTag(s){ return s==='ATTACK' ? tag('ATTACK','bad') : tag('benign','ok'); }
-function actionTag(a){
-  if (!a) return tag('NONE','ok');
-  if (!a.startsWith('BLOCK')) return tag('NONE','ok');
-  let text = a;
-  let cls = 'warn';
-  if (a === 'BLOCK-KILL') { text = 'BLOCK KILL'; cls = 'bad'; }
-  else if (a === 'BLOCK-HARD') { text = 'BLOCK HARD'; cls = 'bad'; }
-  else if (a === 'BLOCK-SOFT') { text = 'BLOCK SOFT'; cls = 'warn'; }
-  return tag(text, cls);
-}
-function reasonTag(r){
-  if (!r) return '<span style="color:#555">—</span>';
-  // Highlight positive contributions
-  return '<span style="font-size:12px;color:#a78bfa;">' + r + '</span>';
-}
-function threatTag(t){
-  if (!t || (!t.country && !t.threat)) return '<span style="color:#555">—</span>';
-  let html = '';
-  if (t.flag) html += `<span style="font-size:14px;margin-right:4px;">${t.flag}</span>`;
-  if (t.country) html += `<span style="font-size:11px;color:#94a3b8;margin-right:6px;">${t.country}</span>`;
-  if (t.threat) html += `<span class="tag bad" style="font-size:10px;">${t.threat}</span>`;
-  return html;
-}
-function rowHtml(e){
-  return '<tr>'
-    + '<td>'+iso(e.ts)+'</td>'
-    + '<td>'+e.index+'</td>'
-    + '<td>'+((e.score ?? 0).toFixed(3))+'</td>'
-    + '<td>'+stateTag(e.state)+'</td>'
-    + '<td>'+threatTag(e.threat)+'</td>'
-    + '<td>'+reasonTag(e.reason)+'</td>'
-    + '<td>'+(e.pred_class ?? '—')+'</td>'
-    + '<td>'+(e.hits_in_window ?? 0)+'</td>'
-    + '<td>'+actionTag(e.action)+'</td>'
-  + '</tr>';
-}
-
-function toast(msg){
-  const el = document.getElementById('save_msg');
-  if (!el) return;
-  el.textContent = msg;
-  setTimeout(()=> el.textContent = '', 2500);
-}
-
-async function refreshCounts(){
-  const r = await fetch('/api/counts?window_minutes=60');
-  const j = await r.json();
-  document.getElementById('mt_total').innerText = j.total ?? 0;
-  document.getElementById('mt_attacks').innerText = j.attacks ?? 0;
-  document.getElementById('mt_blocks').innerText = j.blocks ?? 0;
-  // Optionally render class counts if present
-  const chips = document.getElementById('class_chips');
-  if (chips) {
-    let html = '';
-    if (j.class_counts) {
-      const entries = Object.entries(j.class_counts).sort((a,b)=> b[1]-a[1]);
-      for (const [name, cnt] of entries) {
-        html += `<span class="chip">${name}: ${cnt}</span>`;
-      }
-    }
-    chips.innerHTML = html || '<span class="chip">No class data</span>';
-  }
-  // Block severities
-  const blockChips = document.getElementById('block_chips');
-  if (blockChips) {
-    let html = '';
-    if (j.block_breakdown) {
-      const entries = Object.entries(j.block_breakdown).sort((a,b)=> b[1]-a[1]);
-      for (const [name, cnt] of entries) {
-        html += `<span class="chip">${name}: ${cnt}</span>`;
-      }
-    }
-    blockChips.innerHTML = html || '<span class="chip">No blocks</span>';
-  }
-}
-
-function passesFilters(e){
-  if (fltState !== 'all' && e.state !== fltState) return false;
-  if (fltBlockedOnly && !(e.action && String(e.action).startsWith('BLOCK'))) return false;
-  if (fltText){
-    const t = fltText.toLowerCase();
-    const hay = [
-      e.pred_class || '',
-      e.reason || '',
-      (e.threat && (e.threat.threat || e.threat.country || '')) || ''
-    ].join(' ').toLowerCase();
-    if (!hay.includes(t)) return false;
-  }
-  return true;
-}
-
-function renderTable(){
-  const tbody = document.getElementById('rows');
-  if (!tbody) return;
-  let html = '';
-  const src = allEvents.slice(-200).reverse(); // newest first
-  for (const e of src){
-    if (!passesFilters(e)) continue;
-    html += rowHtml(e);
-  }
-  tbody.innerHTML = html;
-}
-
-async function refreshEvents(){
-  const q = lastTs ? ('?since_ts='+encodeURIComponent(lastTs)) : '';
-  const r = await fetch('/api/events'+q);
-  const j = await r.json();
-  const list = j.events || [];
-  if (!list.length) return;
-
-  // accumulate events and re-render table with filters
-  allEvents = allEvents.concat(list);
-  if (allEvents.length > 500) {
-    allEvents = allEvents.slice(-500);
-  }
-  renderTable();
-
-  // chart update (cap 100)
-  for (const e of list){
-    chartData.labels.push(iso(e.ts));
-    chartData.scores.push(e.score ?? 0);
-    chartData.thresholds.push(e.effective_threshold ?? null);
-  }
-  if (chartData.labels.length > 100){
-    chartData.labels.splice(0, chartData.labels.length-100);
-    chartData.scores.splice(0, chartData.scores.length-100);
-    chartData.thresholds.splice(0, chartData.thresholds.length-100);
-  }
-  chart.data.labels = chartData.labels;
-  chart.data.datasets[0].data = chartData.scores;
-  chart.data.datasets[1].data = chartData.thresholds;
-  chart.update('none');
-
-  // alerts on new BLOCK (any BLOCK-*)
-  for (const e of list){
-    if (e.action && String(e.action).startsWith('BLOCK') && (e.ts > lastBlockTs)){
-      lastBlockTs = e.ts;
-      beep();
-      document.body.style.boxShadow = 'inset 0 0 0 4px #f2d28f55';
-      setTimeout(()=>document.body.style.boxShadow='none', 200);
-    }
-  }
-
-  lastTs = list[list.length-1].ts;
-}
-
-async function loadConfig(){
-  const r = await fetch('/api/config'); const j = await r.json();
-  const d = j.decision || {};
-  document.getElementById('ctl_threshold').value = d.threshold ?? 0.65;
-  document.getElementById('ctl_adaptive').checked = d.use_adaptive ?? false;
-  document.getElementById('ctl_grace').value     = d.grace ?? 3;
-  document.getElementById('ctl_window').value    = d.window ?? 5;
-  document.getElementById('ctl_cool').value      = d.cooldown_sec ?? 30;
-  // Update mode badge based on dry_run (demo vs live)
-  const badge = document.getElementById('mode_badge');
-  if (badge){
-    if (d.dry_run){
-      badge.textContent = 'DEMO MODE (no real blocking)';
-      badge.className = 'tag warn';
-    } else {
-      badge.textContent = 'LIVE MODE (firewall active)';
-      badge.className = 'tag bad';
-    }
-  }
-  // fetch model metadata
-  try { const m = await (await fetch('/api/model')).json(); modelMeta = (m.model || {}); } catch {}
-}
-
-async function saveConfig(){
-  const body = {
-    decision: {
-      threshold: parseFloat(document.getElementById('ctl_threshold').value),
-      use_adaptive: document.getElementById('ctl_adaptive').checked,
-      grace: parseInt(document.getElementById('ctl_grace').value),
-      window: parseInt(document.getElementById('ctl_window').value),
-      cooldown_sec: parseInt(document.getElementById('ctl_cool').value),
-    }
-  };
-  const r = await fetch('/api/config', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
-  const j = await r.json();
-  const msg = document.getElementById('save_msg');
-  msg.textContent = j.ok ? 'Saved (restart decision loop to apply)' : ('Error: '+(j.error||'')); 
-  setTimeout(()=> msg.textContent='', 3500);
-}
-
-function tickClock(){ document.getElementById('clock').innerText = new Date().toISOString(); }
-
-async function tick(){
-  tickClock();
-  await refreshCounts();
-  await refreshEvents();
-}
-
-function setupChart(){
-  const ctx = document.getElementById('scoreChart').getContext('2d');
-  chart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{
-        label: 'Score',
-        data: [],
-        borderWidth: 2,
-        pointRadius: 0,
-        borderColor: '#3b82f6',
-        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-        fill: true
-      },
-      {
-        label: 'Adaptive Threshold',
-        data: [],
-        borderWidth: 2,
-        pointRadius: 0,
-        borderColor: '#f59e0b',
-        borderDash: [5, 5],
-        fill: false
-      }]
-    },
-    options: {
-      animation: false,
-      responsive: true,
-      scales: {
-        x: { ticks: { display:false } },
-        y: { min:0, max:1 }
-      },
-      plugins:{ legend:{ display:false } }
-    }
-  });
-}
-
-document.getElementById('btn_download').onclick = ()=>{ window.location='/api/download.csv'; };
-
-document.getElementById('btn_clear').onclick = async ()=>{
-  if (!confirm('Clear alerts log? This cannot be undone.')) return;
-  const r = await fetch('/api/clear', {method:'POST'});
-  const j = await r.json();
-  if (j.ok){
-    allEvents = [];
-    lastTs = 0;
-    document.getElementById('rows').innerHTML='';
-    chartData.labels = []; chartData.scores = []; chartData.thresholds = []; chart.update();
-    toast('Alerts cleared');
-  } else {
-    toast('Error clearing alerts');
-  }
-};
-
-document.getElementById('btn_clear_all').onclick = async ()=>{
-  if (!confirm('Clear alerts AND reset state? The decision loop offset will reset.')) return;
-  const r = await fetch('/api/clear_all', {method:'POST'});
-  const j = await r.json();
-  if (j.ok){
-    allEvents = [];
-    lastTs = 0;
-    document.getElementById('rows').innerHTML='';
-    chartData.labels = []; chartData.scores = []; chartData.thresholds = []; chart.update();
-    toast('Alerts + state cleared');
-  } else {
-    toast('Error clearing all');
-  }
-};
-
-document.getElementById('btn_save').onclick = saveConfig;
-
-// filter handlers
-document.getElementById('flt_state').onchange = (e)=>{
-  fltState = e.target.value || 'all';
-  renderTable();
-};
-document.getElementById('flt_blocked').onchange = (e)=>{
-  fltBlockedOnly = !!e.target.checked;
-  renderTable();
-};
-document.getElementById('flt_text').oninput = (e)=>{
-  fltText = (e.target.value || '').trim().toLowerCase();
-  renderTable();
-};
-
-// init
-setupChart();
-loadConfig();
-setInterval(tick, 2000);
-tick();
-</script>
-</body>
-</html>
-    """
     resp = Response(html, mimetype="text/html")
     # Prevent stale cached UI — always fetch latest HTML/JS
     resp.headers["Cache-Control"] = "no-store, max-age=0, must-revalidate"

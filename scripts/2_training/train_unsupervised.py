@@ -47,6 +47,13 @@ from sklearn.metrics import (
     average_precision_score,
 )
 
+import sys
+# Add scripts directory and subdirectories to path for imports
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 from utils_common import make_binary_labels
 
 

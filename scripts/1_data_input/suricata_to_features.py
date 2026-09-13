@@ -41,7 +41,8 @@ import yaml
 # Add scripts directory and subdirectories to path for imports
 _scripts_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(_scripts_dir))
-sys.path.insert(0, str(_scripts_dir / "9_utilities"))
+from path_setup import configure_paths
+configure_paths()
 try:
     from logging_config import get_logger
     logger = get_logger("suricata_to_features")

@@ -4,7 +4,8 @@
 # Multi-stage build for the IoTGuard IoT Intrusion Detection System
 # 
 # This Dockerfile creates a production-ready container that:
-# - Runs the API dashboard (Flask server)
+# - Uses a multi-stage build to minimize image size
+# - Runs the API dashboard (Flask server) as a non-root user
 # - Exposes port 5001 for HTTP access
 # - Includes health check for container orchestration
 #
@@ -13,54 +14,65 @@
 # =============================================================================
 
 # -----------------------------------------------------------------------------
-# Base Image
+# Stage 1: Builder — install Python dependencies
 # -----------------------------------------------------------------------------
-# Using Python 3.13 slim for minimal footprint while maintaining compatibility
-FROM python:3.13-slim
+FROM python:3.13-slim AS builder
 
-# -----------------------------------------------------------------------------
-# Metadata Labels
-# -----------------------------------------------------------------------------
-# OCI-compliant labels for container metadata
-LABEL org.opencontainers.image.title="IoTGuard"
-LABEL org.opencontainers.image.description="IoT Intrusion Detection System with ML-based threat detection"
-LABEL org.opencontainers.image.version="1.0.0"
-LABEL org.opencontainers.image.authors="IoTGuard Team"
-LABEL org.opencontainers.image.source="https://github.com/A7medico/iotguard"
+WORKDIR /build
 
-# -----------------------------------------------------------------------------
-# Working Directory
-# -----------------------------------------------------------------------------
-WORKDIR /app
+# Install dependencies into a virtual environment for clean copy
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# -----------------------------------------------------------------------------
-# Dependencies Installation
-# -----------------------------------------------------------------------------
-# Copy requirements first for better Docker layer caching
-# Dependencies won't be reinstalled unless requirements.txt changes
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 # -----------------------------------------------------------------------------
-# Application Code
+# Stage 2: Runtime — slim production image
 # -----------------------------------------------------------------------------
+FROM python:3.13-slim AS runtime
+
+# OCI-compliant labels for container metadata
+LABEL org.opencontainers.image.title="IoTGuard"
+LABEL org.opencontainers.image.description="IoT Intrusion Detection System with ML-based threat detection"
+LABEL org.opencontainers.image.version="2.0.0"
+LABEL org.opencontainers.image.authors="IoTGuard Team"
+LABEL org.opencontainers.image.source="https://github.com/A7medico/iotguard"
+
+# Copy the pre-built virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Create a non-root user for security
+RUN groupadd --gid 1000 iotguard && \
+    useradd --uid 1000 --gid iotguard --create-home iotguard
+
+WORKDIR /app
+
 # Copy the entire project
-COPY . ./
+COPY --chown=iotguard:iotguard . ./
+
+# Ensure data directories exist and are writable
+RUN mkdir -p /app/data /app/logs && \
+    chown -R iotguard:iotguard /app/data /app/logs
 
 # -----------------------------------------------------------------------------
 # Environment Configuration
 # -----------------------------------------------------------------------------
 # Default configuration file path (can be overridden at runtime)
-# Options: configs/model.yaml (default), configs/model_lab.yaml, configs/model_prod.yaml
 ENV IOTGUARD_CONFIG=configs/model.yaml
-
 # Optional: Set log level (DEBUG, INFO, WARNING, ERROR)
 ENV IOTGUARD_LOG_LEVEL=INFO
+# Prevent Python from writing .pyc files and enable unbuffered output
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+
+# Switch to non-root user
+USER iotguard
 
 # -----------------------------------------------------------------------------
 # Networking
 # -----------------------------------------------------------------------------
-# Expose the API dashboard port
 EXPOSE 5001
 
 # -----------------------------------------------------------------------------
@@ -77,4 +89,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Run the Flask API dashboard
 # In production, consider using gunicorn: 
 # CMD ["gunicorn", "-b", "0.0.0.0:5001", "-w", "2", "scripts.api_dashboard:app"]
-CMD ["python", "scripts/api_dashboard.py"]
+CMD ["python", "scripts/5_dashboard/api_dashboard.py"]

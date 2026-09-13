@@ -2,185 +2,417 @@
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
-<title>IoTGuard — Security Dashboard</title>
+<title>IoTGuard — Cybersecurity Command Center</title>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
-<meta name="description" content="IoTGuard Real-time IoT Intrusion Detection Dashboard"/>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛡</text></svg>">
+<meta name="description" content="IoTGuard Real-time ML-Driven IoT Intrusion Detection System — Security Operations Dashboard"/>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛡️</text></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
 <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
 
-<div class="topbar">
-  <div class="logo">
-    <svg viewBox="0 0 28 28" fill="none"><path d="M14 2L3 8v12l11 6 11-6V8L14 2z" stroke="url(#lg)" stroke-width="2" fill="rgba(59,130,246,.1)"/><path d="M14 8v8M10 12h8" stroke="url(#lg)" stroke-width="2" stroke-linecap="round"/><defs><linearGradient id="lg" x1="3" y1="2" x2="25" y2="26"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs></svg>
-    IoTGuard
+<!-- TOAST NOTIFICATIONS -->
+<div class="toast-container" id="toast_container"></div>
+
+<!-- SHAP DETAIL MODAL -->
+<div class="modal-overlay" id="shap_modal">
+  <div class="modal" style="position:relative">
+    <button class="modal-close" onclick="closeShapModal()">&times;</button>
+    <h3 id="shap_title">🔍 SHAP Feature Contributions</h3>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
+      <span id="shap_meta"></span>
+    </div>
+    <div id="shap_bars"></div>
   </div>
-  <span id="mode_badge" class="badge badge-demo">DEMO</span>
-  <div class="nav-links">
-    <a class="nav-link" href="/" style="text-decoration:none">← Website</a>
-    <button class="nav-link active" onclick="window.scrollTo({top:0,behavior:'smooth'})">Dashboard</button>
-    <button class="nav-link" onclick="document.getElementById('sec_controls').scrollIntoView({behavior:'smooth'})">Controls</button>
-    <button class="nav-link" onclick="document.getElementById('sec_events').scrollIntoView({behavior:'smooth'})">Events</button>
-  </div>
-  <div class="spacer"></div>
-  <div id="health_dot" style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--green)">
-    <span class="pulse" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span> Online
-  </div>
-  <div class="clock" id="clock">—</div>
 </div>
 
-<div class="wrap">
+<div class="app-layout">
 
-  <!-- MODEL INFO -->
-  <div class="section-title">System Status</div>
-  <div class="panel fade-in">
-    <div class="model-info" id="model_info">
-      <div class="mi"><div class="mi-label">Model</div><div class="mi-val" id="mi_type">LightGBM</div></div>
-      <div class="mi"><div class="mi-label">Version</div><div class="mi-val" id="mi_ver">—</div></div>
-      <div class="mi"><div class="mi-label">Features</div><div class="mi-val" id="mi_feat">13</div></div>
-      <div class="mi"><div class="mi-label">Train ROC-AUC</div><div class="mi-val" id="mi_auc" style="color:var(--green)">—</div></div>
-      <div class="mi"><div class="mi-label">Threshold</div><div class="mi-val" id="mi_thr">—</div></div>
-      <div class="mi"><div class="mi-label">Ensemble</div><div class="mi-val" id="mi_ens">—</div></div>
+<!-- ============ SIDEBAR ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <svg viewBox="0 0 32 32" fill="none">
+      <path d="M16 2L3 9v14l13 7 13-7V9L16 2z" stroke="url(#sg)" stroke-width="2" fill="rgba(59,130,246,.08)"/>
+      <path d="M16 9v8M12 13h8" stroke="url(#sg)" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3" fill="url(#sg)" opacity="0.4"/>
+      <defs><linearGradient id="sg" x1="3" y1="2" x2="29" y2="30"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+    </svg>
+    <div>
+      <div class="brand-text">IoTGuard</div>
+      <div class="brand-sub">Intrusion Detection System</div>
     </div>
   </div>
 
-  <!-- STATS -->
-  <div class="section-title">Overview — Last 60 Minutes</div>
-  <div class="stats">
-    <div class="stat fade-in">
-      <div class="icon">📊</div>
-      <div class="label">Total Events</div>
-      <div class="val" id="mt_total">0</div>
-      <div class="sub">Scored windows</div>
-      <div class="spark" id="spark_total"></div>
+  <nav class="sidebar-nav">
+    <div class="nav-section">Monitoring</div>
+    <a class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+      <span class="nav-badge" id="nav_attack_count" style="display:none">0</span>
+    </a>
+    <a class="nav-item" data-page="network" onclick="switchPage('network')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+      Network Map
+    </a>
+    <a class="nav-item" data-page="analytics" onclick="switchPage('analytics')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Analytics
+    </a>
+
+    <div class="nav-section">Control</div>
+    <a class="nav-item" data-page="controls" onclick="switchPage('controls')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+    <a class="nav-item" data-page="events" onclick="switchPage('events')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      Event Log
+    </a>
+
+    <div class="nav-section">Simulate</div>
+    <a class="nav-item" data-page="simulate" onclick="switchPage('simulate')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Attack Lab
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <span class="status-dot" id="sidebar_status_dot"></span>
+    <span id="sidebar_status_text">Connecting...</span>
+  </div>
+</aside>
+
+<!-- ============ MAIN CONTENT ============ -->
+<div class="main-content">
+  <div class="topbar">
+    <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <div class="topbar-title" id="page_title">Dashboard</div>
+    <div class="spacer"></div>
+    
+    <!-- DEMO CONTROLS -->
+    <div class="demo-controls" style="display:flex;align-items:center;gap:10px;margin-right:14px">
+      <span id="demo_status_badge" class="tag t-ok" style="font-size:11px;font-weight:700;padding:4px 10px;letter-spacing:0.5px">● STREAMING</span>
+      <button class="btn btn-sm" id="btn_demo_start" onclick="startDemo()" style="background:#10b981;color:#fff;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;display:none">
+        ▶ Start Demo
+      </button>
+      <button class="btn btn-sm" id="btn_demo_stop" onclick="stopDemo()" style="background:#ef4444;color:#fff;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer">
+        ⏹ Stop Demo
+      </button>
+      <button class="btn btn-sm" id="btn_demo_quick_attack" onclick="launchAttack('syn')" style="background:#f59e0b;color:#111;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer">
+        ⚡ Inject Attack
+      </button>
     </div>
-    <div class="stat fade-in">
-      <div class="icon">🚨</div>
-      <div class="label">Attacks Detected</div>
-      <div class="val" id="mt_attacks" style="color:var(--red)">0</div>
-      <div class="sub">Above threshold</div>
-      <div class="spark" id="spark_attacks"></div>
-    </div>
-    <div class="stat fade-in">
-      <div class="icon">🛡</div>
-      <div class="label">IPs Blocked</div>
-      <div class="val" id="mt_blocks" style="color:var(--amber)">0</div>
-      <div class="sub">Firewall actions</div>
-      <div class="spark" id="spark_blocks"></div>
-    </div>
-    <div class="stat fade-in">
-      <div class="icon">📈</div>
-      <div class="label">Detection Rate</div>
-      <div class="val" id="mt_rate" style="color:var(--green)">—</div>
-      <div class="sub">Attack / Total</div>
-    </div>
+
+    <span class="mode-badge demo" id="mode_badge">DEMO</span>
+    <div class="clock" id="clock">--:--:--</div>
   </div>
 
-  <!-- CHARTS ROW -->
-  <div class="section-title">Analytics</div>
-  <div class="charts-row">
-    <div class="panel fade-in">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
-          Anomaly Score Timeline
+  <div class="content">
+
+    <!-- ==================== PAGE: DASHBOARD ==================== -->
+    <div class="page active" id="page_dashboard">
+
+      <!-- System Status -->
+      <div class="section-title">System Status</div>
+      <div class="panel fade-in">
+        <div class="model-info" id="model_info">
+          <div class="mi"><div class="mi-label">Model</div><div class="mi-val" id="mi_type">LightGBM</div></div>
+          <div class="mi"><div class="mi-label">Version</div><div class="mi-val" id="mi_ver">-</div></div>
+          <div class="mi"><div class="mi-label">Features</div><div class="mi-val" id="mi_feat">13</div></div>
+          <div class="mi"><div class="mi-label">Train ROC-AUC</div><div class="mi-val" id="mi_auc" style="color:var(--green)">-</div></div>
+          <div class="mi"><div class="mi-label">Threshold</div><div class="mi-val" id="mi_thr">-</div></div>
+          <div class="mi"><div class="mi-label">Ensemble</div><div class="mi-val" id="mi_ens">-</div></div>
         </div>
-        <div class="panel-subtitle"><span style="color:#3b82f6">■</span> Score &nbsp;<span style="color:#f59e0b">┅</span> Threshold &nbsp;· Last 100</div>
       </div>
-      <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
-    </div>
-    <div class="panel fade-in">
-      <div class="panel-header">
-        <div class="panel-title">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
-          Attack Distribution
+
+      <!-- Stats Cards -->
+      <div class="section-title">Overview — Last 60 Minutes</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="icon">📊</div>
+          <div class="label">Total Events</div>
+          <div class="val" id="mt_total">0</div>
+          <div class="sub">Scored windows</div>
+          <div class="spark" id="spark_total"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">🚨</div>
+          <div class="label">Attacks Detected</div>
+          <div class="val" id="mt_attacks" style="color:var(--red)">0</div>
+          <div class="sub">Above threshold</div>
+          <div class="spark" id="spark_attacks"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">🛑</div>
+          <div class="label">IPs Blocked</div>
+          <div class="val" id="mt_blocks" style="color:var(--amber)">0</div>
+          <div class="sub">Firewall actions</div>
+          <div class="spark" id="spark_blocks"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">✅</div>
+          <div class="label">Detection Rate</div>
+          <div class="val" id="mt_rate" style="color:var(--green)">-</div>
+          <div class="sub">Attack / Total</div>
         </div>
       </div>
-      <div class="pie-wrap"><canvas id="pieChart"></canvas></div>
-    </div>
-  </div>
 
-  <!-- CONTROLS -->
-  <div class="section-title" id="sec_controls">Decision Engine Controls</div>
-  <div class="panel fade-in">
-    <div class="controls">
-      <div class="ctrl-group"><label>Threshold</label><input id="ctl_threshold" type="number" step="0.01" min="0" max="1" style="width:90px"/></div>
-      <div class="ctrl-group"><label>Grace Hits</label><input id="ctl_grace" type="number" min="1" max="20" style="width:80px"/></div>
-      <div class="ctrl-group"><label>Window</label><input id="ctl_window" type="number" min="1" max="50" style="width:80px"/></div>
-      <div class="ctrl-group"><label>Cooldown</label><input id="ctl_cool" type="number" min="0" max="3600" style="width:90px"/></div>
-      <div class="ctrl-group" style="flex-direction:row;align-items:center;gap:6px;padding-top:18px">
-        <input id="ctl_adaptive" type="checkbox"/><label style="text-transform:none;font-size:13px;color:var(--text)">Adaptive</label>
+      <!-- Threat Gauge + Score Chart -->
+      <div class="section-title">Threat Level</div>
+      <div class="charts-row">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Anomaly Score Timeline
+            </div>
+            <div class="panel-subtitle"><span style="color:#3b82f6">━</span> Score &nbsp;<span style="color:#f59e0b">┅</span> Threshold &nbsp;· Last 100</div>
+          </div>
+          <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="gauge-wrap">
+            <svg class="gauge-svg" viewBox="0 0 200 120" id="threat_gauge">
+              <defs>
+                <linearGradient id="gg_low" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#34d399"/></linearGradient>
+                <linearGradient id="gg_med" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#fbbf24"/></linearGradient>
+                <linearGradient id="gg_high" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f87171"/></linearGradient>
+              </defs>
+              <!-- Background arc -->
+              <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(99,130,190,0.1)" stroke-width="12" stroke-linecap="round"/>
+              <!-- Active arc -->
+              <path id="gauge_arc" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gg_low)" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 251" style="transition: stroke-dasharray 1s ease, stroke 0.5s"/>
+              <!-- Needle -->
+              <line id="gauge_needle" x1="100" y1="100" x2="100" y2="30" stroke="var(--text)" stroke-width="2" stroke-linecap="round" style="transition: transform 1s ease; transform-origin: 100px 100px"/>
+              <circle cx="100" cy="100" r="6" fill="var(--surface)" stroke="var(--text2)" stroke-width="2"/>
+            </svg>
+            <div class="gauge-label" id="gauge_text" style="color:var(--green)">LOW</div>
+            <div class="gauge-sub" id="gauge_sub">Current threat assessment</div>
+          </div>
+        </div>
       </div>
-      <div style="flex:1"></div>
-      <button class="btn btn-primary" id="btn_save">Save Config</button>
-      <button class="btn" id="btn_download">⬇ Export CSV</button>
-      <button class="btn btn-danger" id="btn_clear">Clear Log</button>
-      <button class="btn btn-danger" id="btn_clear_all">Reset All</button>
-    </div>
-    <div class="toast" id="save_msg"></div>
-  </div>
 
-  <!-- ATTACK SIMULATOR -->
-  <div class="section-title">Live Attack Simulator</div>
-  <div class="panel fade-in" style="margin-bottom: 24px; border: 1px solid rgba(239, 68, 68, 0.2)">
-    <div class="controls" style="gap: 12px; justify-content: flex-start;">
-      <button class="btn btn-danger" onclick="launchAttack('syn')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">SYN Flood</button>
-      <button class="btn btn-danger" onclick="launchAttack('udp')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">UDP Flood</button>
-      <button class="btn btn-danger" onclick="launchAttack('http')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">HTTP Slowloris</button>
-      <button class="btn btn-danger" onclick="launchAttack('scan')" style="background: rgba(239,68,68,0.1); border-color: rgba(239,68,68,0.3); color: #ef4444">Port Scan</button>
-      <div id="sim_msg" style="color: var(--amber); margin-left: 10px; font-size: 13px; font-weight: 500"></div>
-    </div>
-  </div>
-
-  <!-- BREAKDOWN -->
-  <div class="section-title">Detection Breakdown</div>
-  <div class="panel fade-in" style="display:flex;gap:32px;flex-wrap:wrap">
-    <div style="flex:1;min-width:200px">
-      <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Attack Types</div>
-      <div id="class_chips" class="chips"><span class="chip">Loading...</span></div>
-    </div>
-    <div style="flex:1;min-width:200px">
-      <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Block Actions</div>
-      <div id="block_chips" class="chips"><span class="chip">Loading...</span></div>
-    </div>
-  </div>
-
-  <!-- EVENTS TABLE -->
-  <div class="section-title" id="sec_events">Event Log</div>
-  <div class="panel fade-in">
-    <div class="panel-header">
-      <div class="panel-title">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
-        Recent Events
+      <!-- Attack Distribution + Top Attackers -->
+      <div class="section-title">Intelligence</div>
+      <div class="grid-2">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+              Attack Distribution
+            </div>
+          </div>
+          <div class="pie-wrap"><canvas id="pieChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Top Attackers
+            </div>
+          </div>
+          <div id="top_attackers">
+            <div style="text-align:center;color:var(--text3);padding:20px;font-size:13px">Loading...</div>
+          </div>
+        </div>
       </div>
-      <div class="filters">
-        <label>State <select id="flt_state"><option value="all">All</option><option value="ATTACK">Attack</option><option value="benign">Benign</option></select></label>
-        <label><input id="flt_blocked" type="checkbox"/> Blocked only</label>
-        <label>Search <input id="flt_text" type="text" placeholder="type / reason / IP..." style="min-width:180px"/></label>
+
+      <!-- Detection Breakdown -->
+      <div class="section-title">Detection Breakdown</div>
+      <div class="panel fade-in" style="display:flex;gap:32px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Attack Types</div>
+          <div id="class_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Block Actions</div>
+          <div id="block_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
       </div>
     </div>
-    <div class="tbl-wrap" id="tbl_wrap">
-    <table>
-      <thead><tr><th>Timestamp</th><th>#</th><th>Score</th><th>State</th><th>Threat Intel</th><th>XAI Reason</th><th>Classification</th><th>Hits</th><th>Action</th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-    </div>
-    <button class="expand-btn" id="btn_expand" onclick="toggleExpand()">▼ Show All Events</button>
-  </div>
 
-  <div class="footer">IoTGuard IDS v1.0 · Real-time intrusion detection · Powered by LightGBM + SHAP · Auto-refresh 2s</div>
-</div>
+    <!-- ==================== PAGE: NETWORK MAP ==================== -->
+    <div class="page" id="page_network" style="display:none">
+      <div class="section-title">Network Topology</div>
+      <div class="panel fade-in">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+            Live Device Map
+          </div>
+          <div class="panel-subtitle">IoT + IT devices · Attack flows shown in red</div>
+        </div>
+        <div class="topo-canvas-wrap">
+          <canvas id="topoCanvas"></canvas>
+          <div class="topo-legend">
+            <span><span class="dot" style="background:#3b82f6"></span> Router</span>
+            <span><span class="dot" style="background:#8b5cf6"></span> Firewall</span>
+            <span><span class="dot" style="background:#10b981"></span> IoT Device</span>
+            <span><span class="dot" style="background:#06b6d4"></span> IT Device</span>
+            <span><span class="dot" style="background:#ef4444"></span> Attack</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: ANALYTICS ==================== -->
+    <div class="page" id="page_analytics" style="display:none">
+      <div class="section-title">Feature Analysis</div>
+      <div class="grid-2">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Feature Radar
+            </div>
+            <div class="panel-subtitle">Latest event feature profile</div>
+          </div>
+          <div class="radar-wrap"><canvas id="radarChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="3" height="3"/><rect x="14" y="7" width="3" height="3"/><rect x="7" y="14" width="3" height="3"/><rect x="14" y="14" width="3" height="3"/></svg>
+              Attack Heatmap (7 Days)
+            </div>
+            <div class="panel-subtitle">Hourly attack intensity</div>
+          </div>
+          <div id="heatmap_container" style="padding:8px 0">
+            <div style="text-align:center;color:var(--text3);font-size:13px;padding:20px">Loading heatmap...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: CONTROLS ==================== -->
+    <div class="page" id="page_controls" style="display:none">
+      <div class="section-title">Decision Engine Controls</div>
+      <div class="panel fade-in">
+        <div class="controls">
+          <div class="ctrl-group"><label>Threshold</label><input id="ctl_threshold" type="number" step="0.01" min="0" max="1" style="width:90px"/></div>
+          <div class="ctrl-group"><label>Grace Hits</label><input id="ctl_grace" type="number" min="1" max="20" style="width:80px"/></div>
+          <div class="ctrl-group"><label>Window</label><input id="ctl_window" type="number" min="1" max="50" style="width:80px"/></div>
+          <div class="ctrl-group"><label>Cooldown</label><input id="ctl_cool" type="number" min="0" max="3600" style="width:90px"/></div>
+          <div class="ctrl-group" style="flex-direction:row;align-items:center;gap:6px;padding-top:18px">
+            <input id="ctl_adaptive" type="checkbox"/><label style="text-transform:none;font-size:13px;color:var(--text)">Adaptive</label>
+          </div>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary" id="btn_save">💾 Save Config</button>
+        </div>
+        <div class="toast" id="save_msg"></div>
+      </div>
+
+      <div class="section-title" style="margin-top:24px">Data Management</div>
+      <div class="panel fade-in">
+        <div class="controls">
+          <button class="btn" id="btn_download">📥 Export CSV</button>
+          <button class="btn btn-danger" id="btn_clear">🗑 Clear Log</button>
+          <button class="btn btn-danger" id="btn_clear_all">⚠ Reset All</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: EVENTS ==================== -->
+    <div class="page" id="page_events" style="display:none">
+      <div class="section-title">Event Log</div>
+      <div class="panel fade-in">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Recent Events
+          </div>
+          <div class="filters">
+            <label>State <select id="flt_state"><option value="all">All</option><option value="ATTACK">Attack</option><option value="benign">Benign</option></select></label>
+            <label><input id="flt_blocked" type="checkbox"/> Blocked only</label>
+            <label>Search <input id="flt_text" type="text" placeholder="type / reason / IP..." style="min-width:180px"/></label>
+          </div>
+        </div>
+        <div class="tbl-wrap" id="tbl_wrap">
+          <table>
+            <thead><tr><th>Timestamp</th><th>#</th><th>Score</th><th>State</th><th>Threat Intel</th><th>XAI Reason</th><th>Classification</th><th>Hits</th><th>Action</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <button class="expand-btn" id="btn_expand" onclick="toggleExpand()">▼ Show All Events</button>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: SIMULATE ==================== -->
+    <div class="page" id="page_simulate" style="display:none">
+      <div class="section-title">Attack Simulation Lab</div>
+      <div class="panel fade-in" style="border:1px solid rgba(239,68,68,0.15)">
+        <div class="panel-header">
+          <div class="panel-title" style="color:#f87171">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Launch Simulated Attacks
+          </div>
+          <div class="panel-subtitle">Injects attack-pattern features → decision loop scores → dashboard updates</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px">
+          <button class="sim-btn" onclick="launchAttack('syn')">⚡ SYN Flood</button>
+          <button class="sim-btn" onclick="launchAttack('udp')">🌊 UDP Flood</button>
+          <button class="sim-btn" onclick="launchAttack('http')">🐌 HTTP Slowloris</button>
+          <button class="sim-btn" onclick="launchAttack('scan')">🔍 Port Scan</button>
+          <button class="sim-btn" onclick="launchAttack('botnet')">🤖 IoT Botnet</button>
+          <button class="sim-btn" onclick="launchAttack('exfil')">📤 Data Exfil</button>
+        </div>
+        <div id="sim_msg" style="color:var(--amber);margin-top:12px;font-size:13px;font-weight:500;min-height:20px"></div>
+      </div>
+
+      <div class="section-title" style="margin-top:24px">How It Works</div>
+      <div class="panel fade-in">
+        <div style="font-size:13px;color:var(--text2);line-height:1.8">
+          <p>Each button injects <strong>realistic attack-pattern feature rows</strong> directly into <code style="color:var(--accent);background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px">data/features.csv</code>.</p>
+          <p style="margin-top:8px">The <strong>decision loop</strong> picks up the rows, scores them with the ML model, and writes detections to <code style="color:var(--accent);background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px">alerts.jsonl</code>.</p>
+          <p style="margin-top:8px">The dashboard then visualizes everything in real-time. No Scapy or admin privileges required.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+
+  <div class="footer">IoTGuard IDS v2.0 · ML-Driven Intrusion Detection · LightGBM + SHAP + Ensemble · <span id="footer_clock"></span></div>
+</div><!-- /main-content -->
+
+</div><!-- /app-layout -->
 
 <script>
-let lastTs=null,chart,pieChart,chartData={labels:[],scores:[],thresholds:[]},lastBlockTs=0,allEvents=[],fltState='all',fltBlockedOnly=false,fltText='';
-let sparkHistory={total:[],attacks:[],blocks:[]};
-const audioCtx=new(window.AudioContext||window.webkitAudioContext)();
+// ============================================================================
+// IoTGuard Dashboard — JavaScript Engine
+// ============================================================================
+'use strict';
+
+// --- STATE ---
+let lastTs = null, chart, pieChart, radarChart;
+let chartData = {labels:[], scores:[], thresholds:[]};
+let lastBlockTs = 0, allEvents = [], fltState = 'all', fltBlockedOnly = false, fltText = '';
+let sparkHistory = {total:[], attacks:[], blocks:[]};
+let topoAnimFrame = null, topoData = null;
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// --- PAGE NAVIGATION ---
+function switchPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById('page_' + page);
+  if (el) el.style.display = 'block';
+  const nav = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (nav) nav.classList.add('active');
+  const titles = {dashboard:'Dashboard',network:'Network Map',analytics:'Analytics',controls:'Settings',events:'Event Log',simulate:'Attack Lab'};
+  document.getElementById('page_title').textContent = titles[page] || 'Dashboard';
+  // Initialize page-specific content
+  if (page === 'network') initTopology();
+  if (page === 'analytics') { loadRadar(); loadHeatmap(); }
+}
+
+// --- AUDIO ---
 function beep(){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.type='square';o.frequency.value=880;g.gain.value=0.04;o.start();setTimeout(()=>o.stop(),140)}
-function iso(ts){try{return new Date(ts*1000).toISOString().replace('T',' ').slice(0,19)}catch{return'—'}}
+
+// --- UTILS ---
+function iso(ts){try{return new Date(ts*1000).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})}catch{return'-'}}
 function tag(t,c){return'<span class="tag '+c+'">'+t+'</span>'}
 function stateTag(s){return s==='ATTACK'?tag('ATTACK','t-bad'):tag('BENIGN','t-ok')}
 function actionTag(a){
@@ -196,125 +428,125 @@ function scoreCell(s){
   const w=Math.round(s*100);
   return'<td class="score-cell"><div class="score-bar" style="width:'+w+'%;background:'+bg+'.15)"></div><span class="score-val" style="color:'+c+'">'+v+'</span></td>';
 }
-function reasonHtml(r){return r?'<span class="reason" title="'+r.replace(/"/g,'&quot;')+'">'+r+'</span>':'<span style="color:var(--text3)">—</span>'}
+function reasonHtml(r){return r?'<span class="reason" title="'+r.replace(/"/g,'&quot;')+'">'+r+'</span>':'<span style="color:var(--text3)">-</span>'}
 function threatHtml(t){
-  if(!t||(!t.country&&!t.threat))return'<span style="color:var(--text3)">—</span>';
-  let h='';if(t.flag)h+=t.flag+' ';if(t.country)h+='<span style="color:var(--text2)">'+t.country+'</span> ';if(t.threat)h+=tag(t.threat,'t-bad');
-  return h;
-}
-function rowHtml(e){
-  return'<tr><td>'+iso(e.ts)+'</td><td>'+e.index+'</td>'+scoreCell(e.score)+'<td>'+stateTag(e.state)+'</td><td>'+threatHtml(e.threat)+'</td><td>'+reasonHtml(e.reason)+'</td><td>'+(e.pred_class||'—')+'</td><td>'+(e.hits_in_window??0)+'</td><td>'+actionTag(e.action)+'</td></tr>';
-}
-function toast(m){const el=document.getElementById('save_msg');el.textContent=m;setTimeout(()=>el.textContent='',3000)}
-
-function renderSpark(id,data,color){
-  const el=document.getElementById(id);if(!el||!data.length)return;
-  const max=Math.max(...data,1);
-  let h='';for(const v of data.slice(-12))h+='<div class="bar" style="height:'+Math.max(2,v/max*100)+'%;background:'+color+'"></div>';
-  el.innerHTML=h;
+  if(!t)return'<span style="color:var(--text3)">-</span>';
+  let h='';
+  if(t.flag)h+=`<span style="font-size:14px;margin-right:4px">${t.flag}</span>`;
+  if(t.country)h+=`<span style="font-size:11px;color:var(--text2);margin-right:6px">${t.country}</span>`;
+  if(t.threat)h+=tag(t.threat,'t-bad');
+  return h||'<span style="color:var(--text3)">-</span>';
 }
 
-let lastCounts={};
-async function refreshCounts(){
-  const j=await(await fetch('/api/counts?window_minutes=60')).json();
-  document.getElementById('mt_total').innerText=j.total??0;
-  document.getElementById('mt_attacks').innerText=j.attacks??0;
-  document.getElementById('mt_blocks').innerText=j.blocks??0;
-  const rate=j.total>0?((j.attacks/j.total)*100).toFixed(1)+'%':'—';
-  document.getElementById('mt_rate').innerText=rate;
-  sparkHistory.total.push(j.total||0);sparkHistory.attacks.push(j.attacks||0);sparkHistory.blocks.push(j.blocks||0);
-  renderSpark('spark_total',sparkHistory.total,'rgba(59,130,246,.5)');
-  renderSpark('spark_attacks',sparkHistory.attacks,'rgba(239,68,68,.5)');
-  renderSpark('spark_blocks',sparkHistory.blocks,'rgba(245,158,11,.5)');
-
-  const chips=document.getElementById('class_chips');
-  if(j.class_counts){let h='';for(const[n,c]of Object.entries(j.class_counts).sort((a,b)=>b[1]-a[1]))h+='<span class="chip">'+n+': <strong>'+c+'</strong></span>';chips.innerHTML=h||'<span class="chip">No data</span>'}
-  const bc=document.getElementById('block_chips');
-  if(j.block_breakdown){let h='';for(const[n,c]of Object.entries(j.block_breakdown).sort((a,b)=>b[1]-a[1]))h+='<span class="chip">'+n.replace('-',' ')+': <strong>'+c+'</strong></span>';bc.innerHTML=h||'<span class="chip">No blocks</span>'}
-
-  // Update pie chart
-  if(j.class_counts&&pieChart){
-    const entries=Object.entries(j.class_counts).sort((a,b)=>b[1]-a[1]);
-    pieChart.data.labels=entries.map(e=>e[0]);
-    pieChart.data.datasets[0].data=entries.map(e=>e[1]);
-    pieChart.update('none');
-  }
-  lastCounts=j;
+// --- NOTIFICATION TOASTS ---
+function showToast(type, msg) {
+  const c = document.getElementById('toast_container');
+  const el = document.createElement('div');
+  el.className = 'toast-item ' + type;
+  const icons = {attack:'🚨',block:'🛑',info:'ℹ️'};
+  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span><span class="toast-time">${new Date().toLocaleTimeString()}</span>`;
+  c.appendChild(el);
+  setTimeout(()=>{el.classList.add('exit');setTimeout(()=>el.remove(),300)},5000);
+  // Keep max 5 toasts
+  while(c.children.length > 5) c.children[0].remove();
 }
 
+// --- ANIMATED NUMBER UPDATE ---
+function animateValue(el, newVal) {
+  const old = parseInt(el.textContent) || 0;
+  if (old === newVal) return;
+  el.textContent = newVal;
+  el.classList.remove('count-pop');
+  void el.offsetWidth; // force reflow
+  el.classList.add('count-pop');
+}
+
+// --- SPARKLINES ---
+function updateSpark(id, history, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const max = Math.max(...history, 1);
+  el.innerHTML = history.slice(-20).map(v =>
+    `<div class="bar" style="height:${Math.max(2, (v/max)*100)}%;background:${color}"></div>`
+  ).join('');
+}
+
+// --- THREAT GAUGE ---
+function updateGauge(score) {
+  const arc = document.getElementById('gauge_arc');
+  const needle = document.getElementById('gauge_needle');
+  const label = document.getElementById('gauge_text');
+  const sub = document.getElementById('gauge_sub');
+  if (!arc) return;
+  const pct = Math.min(1, Math.max(0, score));
+  const arcLen = 251; // approximate arc length
+  arc.setAttribute('stroke-dasharray', `${pct * arcLen} ${arcLen}`);
+  // Needle rotation: -90 to +90 degrees mapped to 0-1
+  const angle = -90 + pct * 180;
+  needle.style.transform = `rotate(${angle}deg)`;
+  if (pct < 0.3) { label.textContent = 'LOW'; label.style.color = 'var(--green)'; arc.setAttribute('stroke', 'url(#gg_low)'); sub.textContent = 'System operating normally'; }
+  else if (pct < 0.6) { label.textContent = 'MEDIUM'; label.style.color = 'var(--amber)'; arc.setAttribute('stroke', 'url(#gg_med)'); sub.textContent = 'Elevated threat activity detected'; }
+  else if (pct < 0.85) { label.textContent = 'HIGH'; label.style.color = '#f87171'; arc.setAttribute('stroke', 'url(#gg_high)'); sub.textContent = 'Active attacks in progress'; }
+  else { label.textContent = 'CRITICAL'; label.style.color = '#ef4444'; arc.setAttribute('stroke', 'url(#gg_high)'); sub.textContent = '⚠ Multiple active threats — take action!'; }
+}
+
+// --- TABLE ---
+function rowHtml(e) {
+  return `<tr onclick="openShapModal(${e.index})" title="Click for SHAP detail">
+    <td>${iso(e.ts)}</td><td>${e.index}</td>${scoreCell(e.score??0)}<td>${stateTag(e.state)}</td>
+    <td class="threat-cell">${threatHtml(e.threat)}</td><td>${reasonHtml(e.reason)}</td>
+    <td>${e.pred_class??'-'}</td><td>${e.hits_in_window??0}</td><td>${actionTag(e.action)}</td></tr>`;
+}
 function passesFilters(e){
   if(fltState!=='all'&&e.state!==fltState)return false;
   if(fltBlockedOnly&&!(e.action&&String(e.action).startsWith('BLOCK')))return false;
-  if(fltText){const t=fltText,h=[e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!h.includes(t))return false}
+  if(fltText){const t=fltText;const hay=[e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!hay.includes(t))return false}
   return true;
 }
-function renderTable(){let h='';for(const e of allEvents.slice(-200).reverse())if(passesFilters(e))h+=rowHtml(e);document.getElementById('rows').innerHTML=h}
-
-async function refreshEvents(){
-  const q=lastTs?('?since_ts='+encodeURIComponent(lastTs)):'';
-  const j=await(await fetch('/api/events'+q)).json();const list=j.events||[];if(!list.length)return;
-  allEvents=allEvents.concat(list);if(allEvents.length>500)allEvents=allEvents.slice(-500);renderTable();
-  for(const e of list){chartData.labels.push(iso(e.ts));chartData.scores.push(e.score??0);chartData.thresholds.push(e.effective_threshold??null)}
-  if(chartData.labels.length>100){chartData.labels.splice(0,chartData.labels.length-100);chartData.scores.splice(0,chartData.scores.length-100);chartData.thresholds.splice(0,chartData.thresholds.length-100)}
-  chart.data.labels=chartData.labels;chart.data.datasets[0].data=chartData.scores;chart.data.datasets[1].data=chartData.thresholds;chart.update('none');
-  for(const e of list)if(e.action&&String(e.action).startsWith('BLOCK')&&e.ts>lastBlockTs){lastBlockTs=e.ts;beep();document.body.style.boxShadow='inset 0 0 0 3px rgba(239,68,68,.25)';setTimeout(()=>document.body.style.boxShadow='none',300)}
-  lastTs=list[list.length-1].ts;
+function renderTable(){
+  const tbody=document.getElementById('rows');if(!tbody)return;
+  let html='';const src=allEvents.slice(-200).reverse();
+  for(const e of src){if(!passesFilters(e))continue;html+=rowHtml(e)}
+  tbody.innerHTML=html;
 }
+function toggleExpand(){const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');w.classList.toggle('expanded');b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events'}
 
-async function loadConfig(){
-  const j=await(await fetch('/api/config')).json(),d=j.decision||{};
-  document.getElementById('ctl_threshold').value=d.threshold??0.65;
-  document.getElementById('ctl_adaptive').checked=d.use_adaptive??false;
-  document.getElementById('ctl_grace').value=d.grace??3;
-  document.getElementById('ctl_window').value=d.window??5;
-  document.getElementById('ctl_cool').value=d.cooldown_sec??30;
-  const b=document.getElementById('mode_badge');
-  if(d.dry_run){b.textContent='DEMO MODE';b.className='badge badge-demo'}else{b.textContent='LIVE MODE';b.className='badge badge-live'}
-  document.getElementById('mi_thr').textContent=d.threshold??'—';
-  // Model info from /api/model and /health
-  try{
-    const m=await(await fetch('/api/model')).json();
-    if(m.model_type)document.getElementById('mi_type').textContent=m.model_type;
-    if(m.version)document.getElementById('mi_ver').textContent='v'+m.version;
-    if(m.features_count)document.getElementById('mi_feat').textContent=m.features_count;
-    if(m.roc_auc)document.getElementById('mi_auc').textContent=m.roc_auc;
-  }catch{}
-  try{
-    const h=await(await fetch('/health')).json();
-    if(h.model){
-      if(!document.getElementById('mi_ver').textContent||document.getElementById('mi_ver').textContent==='—')document.getElementById('mi_ver').textContent='v'+(h.model.version||'?');
-      if(h.model.roc_auc)document.getElementById('mi_auc').textContent=h.model.roc_auc;
-    }
-  }catch{}
-  try{
-    const e=await(await fetch('/api/v1/ensemble')).json();
-    if(e.ok)document.getElementById('mi_ens').textContent=e.strategy||'—';
-  }catch{document.getElementById('mi_ens').textContent='off'}
-}
-async function saveConfig(){
-  const body={decision:{threshold:parseFloat(document.getElementById('ctl_threshold').value),use_adaptive:document.getElementById('ctl_adaptive').checked,grace:parseInt(document.getElementById('ctl_grace').value),window:parseInt(document.getElementById('ctl_window').value),cooldown_sec:parseInt(document.getElementById('ctl_cool').value)}};
-  const j=await(await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
-  toast(j.ok?'✓ Config saved — restart decision loop to apply':'Error: '+(j.error||''));
-}
-
-async function launchAttack(type){
-  const el = document.getElementById('sim_msg');
-  el.textContent = 'Launching ' + type.toUpperCase() + ' attack...';
+// --- SHAP MODAL ---
+async function openShapModal(index) {
+  const overlay = document.getElementById('shap_modal');
   try {
-    const res = await fetch('/api/simulate?type=' + type, { method: 'POST' });
-    const j = await res.json();
-    el.textContent = j.ok ? '✓ Attack payload sent!' : 'Error: ' + (j.error||'Failed');
-    setTimeout(()=>el.textContent='', 4000);
-  } catch(err) {
-    el.textContent = 'Network error.';
-    setTimeout(()=>el.textContent='', 4000);
-  }
+    const r = await fetch('/api/shap_detail?index=' + index);
+    const j = await r.json();
+    if (!j.ok) { showToast('info', 'No SHAP data for event #' + index); return; }
+    document.getElementById('shap_title').textContent = `🔍 SHAP — Event #${index}`;
+    document.getElementById('shap_meta').innerHTML = `Score: <strong style="color:${j.score>=0.7?'var(--red)':'var(--green)'}"> ${(j.score||0).toFixed(4)}</strong> · State: ${stateTag(j.state)} · Class: ${j.pred_class||'-'}`;
+    const bars = document.getElementById('shap_bars');
+    if (!j.contributions || j.contributions.length === 0) {
+      bars.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">No SHAP contributions available for this event</div>';
+    } else {
+      const maxAbs = Math.max(...j.contributions.map(c => Math.abs(c.value)), 0.01);
+      bars.innerHTML = j.contributions.map(c => {
+        const pct = Math.abs(c.value) / maxAbs * 45;
+        const isPos = c.value > 0;
+        return `<div class="shap-bar-row">
+          <div class="shap-feature">${c.feature}</div>
+          <div class="shap-bar-wrap"><div class="shap-bar ${isPos?'positive':'negative'}" style="width:${pct}%"></div></div>
+          <div class="shap-val ${isPos?'pos':'neg'}">${isPos?'+':''}${c.value.toFixed(3)}</div>
+        </div>`;
+      }).join('');
+    }
+    overlay.classList.add('active');
+  } catch(e) { showToast('info', 'Could not load SHAP data'); }
 }
+function closeShapModal() { document.getElementById('shap_modal').classList.remove('active'); }
+document.getElementById('shap_modal').addEventListener('click', e => { if(e.target.classList.contains('modal-overlay')) closeShapModal(); });
 
-function setupCharts(){
-  const ctx=document.getElementById('scoreChart').getContext('2d');
-  const grad=ctx.createLinearGradient(0,0,0,200);grad.addColorStop(0,'rgba(59,130,246,.3)');grad.addColorStop(1,'rgba(59,130,246,.0)');
-  chart=new Chart(ctx,{type:'line',data:{labels:[],datasets:[
+// --- CHARTS SETUP ---
+function setupCharts() {
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,'rgba(59,130,246,.3)');grad.addColorStop(1,'rgba(59,130,246,.0)');
+  chart = new Chart(ctx,{type:'line',data:{labels:[],datasets:[
     {label:'Score',data:[],borderWidth:2,pointRadius:0,borderColor:'#3b82f6',backgroundColor:grad,fill:true,tension:.35},
     {label:'Threshold',data:[],borderWidth:2,pointRadius:0,borderColor:'#f59e0b',borderDash:[6,4],fill:false}
   ]},options:{animation:false,responsive:true,maintainAspectRatio:false,
@@ -322,56 +554,453 @@ function setupCharts(){
     scales:{x:{display:false},y:{min:0,max:1,grid:{color:'rgba(99,130,190,.06)'},ticks:{color:'#64748b',font:{size:11}}}},
     plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}
   }});
-  const colors=['#3b82f6','#8b5cf6','#ef4444','#f59e0b','#10b981','#06b6d4','#ec4899','#6366f1'];
-  pieChart=new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{labels:[],datasets:[{data:[],backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+  const colors = ['#3b82f6','#8b5cf6','#ef4444','#f59e0b','#10b981','#06b6d4','#ec4899','#6366f1'];
+  pieChart = new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{labels:[],datasets:[{data:[],backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
     options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#94a3b8',padding:12,font:{size:11},usePointStyle:true,pointStyle:'circle'}},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}}
   });
 }
 
-function tickClock(){document.getElementById('clock').textContent=new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})}
-async function tick(){tickClock();await refreshCounts();await refreshEvents()}
-
-document.getElementById('btn_save').onclick=saveConfig;
-document.getElementById('btn_download').onclick=()=>window.location='/api/download.csv';
-document.getElementById('btn_clear').onclick=async()=>{if(!confirm('Clear alerts log?'))return;const j=await(await fetch('/api/clear',{method:'POST'})).json();if(j.ok){allEvents=[];lastTs=0;document.getElementById('rows').innerHTML='';chartData.labels=[];chartData.scores=[];chartData.thresholds=[];chart.update();toast('✓ Cleared')}};
-document.getElementById('btn_clear_all').onclick=async()=>{if(!confirm('Reset all data & state?'))return;const j=await(await fetch('/api/clear_all',{method:'POST'})).json();if(j.ok){allEvents=[];lastTs=0;document.getElementById('rows').innerHTML='';chartData.labels=[];chartData.scores=[];chartData.thresholds=[];chart.update();toast('✓ Reset complete')}};
-document.getElementById('flt_state').onchange=e=>{fltState=e.target.value;renderTable()};
-document.getElementById('flt_blocked').onchange=e=>{fltBlockedOnly=!!e.target.checked;renderTable()};
-document.getElementById('flt_text').oninput=e=>{fltText=(e.target.value||'').trim().toLowerCase();renderTable()};
-
-function toggleExpand(){
-  const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');
-  w.classList.toggle('expanded');
-  b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events';
+// --- RADAR CHART ---
+async function loadRadar() {
+  try {
+    const r = await fetch('/api/feature_radar');
+    const j = await r.json();
+    if (!j.ok) return;
+    const ctx = document.getElementById('radarChart');
+    if (radarChart) radarChart.destroy();
+    radarChart = new Chart(ctx, {type:'radar',data:{labels:j.features.map(f=>f.replace('_',' ')),datasets:[{
+      label:'Feature Values',data:j.values,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.15)',borderWidth:2,pointBackgroundColor:'#3b82f6',pointRadius:3
+    }]},options:{responsive:true,maintainAspectRatio:false,scales:{r:{beginAtZero:true,max:1,grid:{color:'rgba(99,130,190,.08)'},pointLabels:{color:'#94a3b8',font:{size:10}},ticks:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',cornerRadius:8}}}
+    });
+  } catch(e) { console.log('Radar load failed:', e); }
 }
-setupCharts();loadConfig();setInterval(tick,5000);tick();
 
-// WebSocket Integration
+// --- HEATMAP ---
+async function loadHeatmap() {
+  try {
+    const r = await fetch('/api/timeline_heatmap?days=7');
+    const j = await r.json();
+    if (!j.ok) return;
+    const c = document.getElementById('heatmap_container');
+    const maxVal = Math.max(...j.days.flatMap(d => d.hours), 1);
+    let html = '<div style="display:flex;gap:4px;flex-direction:column">';
+    for (const day of j.days) {
+      html += `<div style="display:flex;align-items:center;gap:4px"><span style="font-size:10px;color:var(--text3);width:30px;text-align:right">${day.label}</span>`;
+      for (let h = 0; h < 24; h++) {
+        const v = day.hours[h] || 0;
+        const lvl = v === 0 ? 0 : v <= maxVal*0.2 ? 1 : v <= maxVal*0.4 ? 2 : v <= maxVal*0.6 ? 3 : v <= maxVal*0.8 ? 4 : 5;
+        html += `<div class="heatmap-cell lvl-${lvl}" title="${day.date} ${h}:00 — ${v} attacks"></div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<div class="heatmap-labels" style="margin-left:34px">';
+    for (let h = 0; h < 24; h += 3) html += `<span style="width:${3*17}px">${h}:00</span>`;
+    html += '</div>';
+    c.innerHTML = html;
+  } catch(e) { console.log('Heatmap load failed:', e); }
+}
+
+// --- TOPOLOGY CANVAS ---
+function initTopology() {
+  const canvas = document.getElementById('topoCanvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth * 2;
+  canvas.height = wrap.clientHeight * 2;
+  canvas.style.width = wrap.clientWidth + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+  loadTopology();
+}
+
+let topoParticles = [];
+async function loadTopology() {
+  try {
+    const r = await fetch('/api/topology');
+    topoData = await r.json();
+    if (topoData.ok) { topoParticles = []; drawTopology(); }
+  } catch(e) { console.log('Topology load failed:', e); }
+}
+
+function drawTopology() {
+  const canvas = document.getElementById('topoCanvas');
+  if (!canvas || !topoData) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const deviceMap = {};
+  topoData.devices.forEach(d => { deviceMap[d.id] = d; });
+
+  // Draw connections
+  for (const conn of topoData.connections) {
+    const from = deviceMap[conn.from], to = deviceMap[conn.to];
+    if (!from || !to) continue;
+    const fx = from.x * W, fy = from.y * H, tx = to.x * W, ty = to.y * H;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy); ctx.lineTo(tx, ty);
+    ctx.strokeStyle = conn.attack ? 'rgba(239,68,68,0.5)' : 'rgba(99,130,190,0.12)';
+    ctx.lineWidth = conn.attack ? 3 : 1.5;
+    ctx.stroke();
+    // Add particles on attack connections
+    if (conn.attack && Math.random() < 0.15) {
+      topoParticles.push({fx,fy,tx,ty,progress:0,speed:0.008+Math.random()*0.01});
+    }
+  }
+
+  // Draw particles
+  topoParticles = topoParticles.filter(p => p.progress < 1);
+  for (const p of topoParticles) {
+    p.progress += p.speed;
+    const x = p.fx + (p.tx - p.fx) * p.progress;
+    const y = p.fy + (p.ty - p.fy) * p.progress;
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(239,68,68,${1 - p.progress})`;
+    ctx.fill();
+    // Glow
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(239,68,68,${0.2 * (1 - p.progress)})`;
+    ctx.fill();
+  }
+
+  // Draw device nodes
+  const typeColors = {router:'#3b82f6',firewall:'#8b5cf6',iot:'#10b981',it:'#06b6d4'};
+  const typeIcons = {router:'🌐',firewall:'🛡',iot:'📡',it:'💻'};
+  for (const d of topoData.devices) {
+    const x = d.x * W, y = d.y * H;
+    const color = typeColors[d.type] || '#94a3b8';
+    // Outer glow
+    ctx.beginPath();
+    ctx.arc(x, y, 22, 0, Math.PI * 2);
+    ctx.fillStyle = color.replace(')', ',0.1)').replace('rgb', 'rgba');
+    ctx.fill();
+    // Node circle
+    ctx.beginPath();
+    ctx.arc(x, y, 14, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(10,14,26,0.9)';
+    ctx.fill();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    // Icon
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(typeIcons[d.type] || '•', x, y);
+    // Label
+    ctx.font = '500 11px Inter, sans-serif';
+    ctx.fillStyle = '#94a3b8';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.label, x, y + 26);
+  }
+
+  topoAnimFrame = requestAnimationFrame(drawTopology);
+}
+
+// --- TOP ATTACKERS ---
+async function loadTopAttackers() {
+  try {
+    const r = await fetch('/api/top_attackers');
+    const j = await r.json();
+    const el = document.getElementById('top_attackers');
+    if (!j.ok || !j.attackers.length) { el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:13px">No attack data yet</div>'; return; }
+    const max = j.attackers[0].count || 1;
+    el.innerHTML = j.attackers.map((a, i) =>
+      `<div class="attacker-row">
+        <div class="attacker-rank ${i<3?'top':''}">#${i+1}</div>
+        <div class="attacker-flag">${a.flag||'🌐'}</div>
+        <div class="attacker-ip">${a.ip}</div>
+        <div class="attacker-bar-wrap"><div class="attacker-bar" style="width:${(a.count/max)*100}%"></div></div>
+        <div class="attacker-count">${a.count}</div>
+        ${a.blocked?'<span class="tag t-bad" style="font-size:10px">BLOCKED</span>':''}
+      </div>`
+    ).join('');
+  } catch(e) {}
+}
+
+// --- DATA REFRESH ---
+async function refreshCounts() {
+  try {
+    const r = await fetch('/api/counts?window_minutes=60');
+    const j = await r.json();
+    animateValue(document.getElementById('mt_total'), j.total ?? 0);
+    animateValue(document.getElementById('mt_attacks'), j.attacks ?? 0);
+    animateValue(document.getElementById('mt_blocks'), j.blocks ?? 0);
+    // Detection rate
+    const rate = j.total > 0 ? ((j.attacks / j.total) * 100).toFixed(1) + '%' : '-';
+    document.getElementById('mt_rate').textContent = rate;
+    // Update gauge based on recent attack ratio
+    const attackRatio = j.total > 0 ? j.attacks / j.total : 0;
+    updateGauge(attackRatio);
+    // Update nav badge
+    const badge = document.getElementById('nav_attack_count');
+    if (j.attacks > 0) { badge.style.display = ''; badge.textContent = j.attacks; } else { badge.style.display = 'none'; }
+    // Sparklines
+    sparkHistory.total.push(j.total); sparkHistory.attacks.push(j.attacks); sparkHistory.blocks.push(j.blocks);
+    if (sparkHistory.total.length > 20) { sparkHistory.total.shift(); sparkHistory.attacks.shift(); sparkHistory.blocks.shift(); }
+    updateSpark('spark_total', sparkHistory.total, 'rgba(59,130,246,0.5)');
+    updateSpark('spark_attacks', sparkHistory.attacks, 'rgba(239,68,68,0.5)');
+    updateSpark('spark_blocks', sparkHistory.blocks, 'rgba(245,158,11,0.5)');
+    // Pie chart
+    if (j.class_counts) {
+      const entries = Object.entries(j.class_counts).sort((a,b) => b[1]-a[1]);
+      pieChart.data.labels = entries.map(e => e[0]);
+      pieChart.data.datasets[0].data = entries.map(e => e[1]);
+      pieChart.update('none');
+    }
+    // Chips
+    const chips = document.getElementById('class_chips');
+    if (chips && j.class_counts) {
+      const entries = Object.entries(j.class_counts).sort((a,b) => b[1]-a[1]);
+      chips.innerHTML = entries.map(([n,c]) => `<span class="chip">${n}: ${c}</span>`).join('') || '<span class="chip">No class data</span>';
+    }
+    const blockChips = document.getElementById('block_chips');
+    if (blockChips && j.block_breakdown) {
+      const entries = Object.entries(j.block_breakdown).sort((a,b) => b[1]-a[1]);
+      blockChips.innerHTML = entries.map(([n,c]) => `<span class="chip">${n}: ${c}</span>`).join('') || '<span class="chip">No blocks</span>';
+    }
+  } catch(e) {}
+}
+
+async function refreshEvents() {
+  try {
+    const q = lastTs ? ('?since_ts=' + encodeURIComponent(lastTs)) : '';
+    const r = await fetch('/api/events' + q);
+    const j = await r.json();
+    const list = j.events || [];
+    if (!list.length) return;
+    allEvents = allEvents.concat(list);
+    if (allEvents.length > 500) allEvents = allEvents.slice(-500);
+    renderTable();
+    // Chart update
+    for (const e of list) {
+      chartData.labels.push(iso(e.ts));
+      chartData.scores.push(e.score ?? 0);
+      chartData.thresholds.push(e.effective_threshold ?? null);
+    }
+    if (chartData.labels.length > 100) {
+      chartData.labels.splice(0, chartData.labels.length - 100);
+      chartData.scores.splice(0, chartData.scores.length - 100);
+      chartData.thresholds.splice(0, chartData.thresholds.length - 100);
+    }
+    chart.data.labels = chartData.labels;
+    chart.data.datasets[0].data = chartData.scores;
+    chart.data.datasets[1].data = chartData.thresholds;
+    chart.update('none');
+    // Block alerts
+    for (const e of list) {
+      if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
+        lastBlockTs = e.ts;
+        beep();
+        showToast('block', `IP blocked: ${e.src_ip || 'unknown'} — ${e.pred_class || 'Attack'} (score: ${(e.score||0).toFixed(3)})`);
+      } else if (e.state === 'ATTACK' && e.ts > lastBlockTs - 5) {
+        showToast('attack', `Attack detected: ${e.pred_class || 'Anomaly'} (score: ${(e.score||0).toFixed(3)})`);
+      }
+    }
+    lastTs = list[list.length - 1].ts;
+  } catch(e) {}
+}
+
+// --- CONFIG ---
+async function loadConfig() {
+  try {
+    const j = await (await fetch('/api/config')).json();
+    const d = j.decision || {};
+    document.getElementById('ctl_threshold').value = d.threshold ?? 0.65;
+    document.getElementById('ctl_adaptive').checked = d.use_adaptive ?? false;
+    document.getElementById('ctl_grace').value = d.grace ?? 3;
+    document.getElementById('ctl_window').value = d.window ?? 5;
+    document.getElementById('ctl_cool').value = d.cooldown_sec ?? 30;
+    const b = document.getElementById('mode_badge');
+    if (d.dry_run) { b.textContent = 'DEMO'; b.className = 'mode-badge demo'; }
+    else { b.textContent = 'LIVE'; b.className = 'mode-badge live'; }
+    document.getElementById('mi_thr').textContent = d.threshold ?? '-';
+  } catch(e) {}
+  // Model info
+  try {
+    const m = await (await fetch('/api/model')).json();
+    if (m.model_type) document.getElementById('mi_type').textContent = m.model_type;
+  } catch {}
+  try {
+    const h = await (await fetch('/health')).json();
+    if (h.model) {
+      if (h.model.version) document.getElementById('mi_ver').textContent = 'v' + h.model.version;
+      if (h.model.roc_auc) document.getElementById('mi_auc').textContent = h.model.roc_auc;
+      if (h.model.features_count) document.getElementById('mi_feat').textContent = h.model.features_count;
+    }
+  } catch {}
+  try {
+    const e = await (await fetch('/api/v1/ensemble')).json();
+    if (e.ok) document.getElementById('mi_ens').textContent = e.strategy || '-';
+  } catch { document.getElementById('mi_ens').textContent = 'off'; }
+}
+
+async function saveConfig() {
+  const body = {decision:{
+    threshold: parseFloat(document.getElementById('ctl_threshold').value),
+    use_adaptive: document.getElementById('ctl_adaptive').checked,
+    grace: parseInt(document.getElementById('ctl_grace').value),
+    window: parseInt(document.getElementById('ctl_window').value),
+    cooldown_sec: parseInt(document.getElementById('ctl_cool').value)
+  }};
+  const j = await (await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  const msg = document.getElementById('save_msg');
+  msg.textContent = j.ok ? '✅ Config saved — restart decision loop to apply' : 'Error: ' + (j.error||'');
+  msg.style.color = j.ok ? 'var(--green)' : 'var(--red)';
+  setTimeout(() => msg.textContent = '', 3500);
+}
+
+// --- DEMO SIMULATION CONTROLS ---
+async function startDemo() {
+  try {
+    const res = await fetch('/api/demo/start', { method: 'POST' });
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(true);
+      showToast('info', '▶ Live traffic demo started');
+    }
+  } catch(e) {
+    showToast('info', 'Failed to start demo');
+  }
+}
+
+async function stopDemo() {
+  try {
+    const res = await fetch('/api/demo/stop', { method: 'POST' });
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(false);
+      showToast('info', '⏹ Live traffic demo paused');
+    }
+  } catch(e) {
+    showToast('info', 'Failed to stop demo');
+  }
+}
+
+async function checkDemoStatus() {
+  try {
+    const res = await fetch('/api/demo/status');
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(j.running);
+    }
+  } catch(e) {}
+}
+
+function updateDemoUI(isRunning) {
+  const badge = document.getElementById('demo_status_badge');
+  const btnStart = document.getElementById('btn_demo_start');
+  const btnStop = document.getElementById('btn_demo_stop');
+  if (isRunning) {
+    if (badge) { badge.className = 'tag t-ok'; badge.textContent = '● STREAMING'; }
+    if (btnStart) btnStart.style.display = 'none';
+    if (btnStop) btnStop.style.display = 'inline-flex';
+  } else {
+    if (badge) { badge.className = 'tag t-warn'; badge.textContent = '○ STOPPED'; }
+    if (btnStart) btnStart.style.display = 'inline-flex';
+    if (btnStop) btnStop.style.display = 'none';
+  }
+}
+
+async function launchAttack(type) {
+  const el = document.getElementById('sim_msg');
+  if (el) el.textContent = '⏳ Injecting ' + type.toUpperCase() + ' attack burst...';
+  try {
+    const res = await fetch('/api/demo/inject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: type })
+    });
+    const j = await res.json();
+    if (j.ok) {
+      if (el) el.innerHTML = `✅ <strong>${j.attack_type.toUpperCase()}</strong> burst injected. Decision loop is scoring.`;
+      showToast('attack', `⚡ Injected ${j.attack_type.toUpperCase()} attack burst`);
+    } else {
+      if (el) el.textContent = '❌ Error: ' + (j.error || 'Failed');
+    }
+    setTimeout(() => { if (el) el.textContent = ''; }, 5000);
+  } catch(err) {
+    if (el) el.textContent = '❌ Network error.';
+    setTimeout(() => { if (el) el.textContent = ''; }, 4000);
+  }
+}
+
+// --- CLOCK ---
+function tickClock() {
+  const t = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  document.getElementById('clock').textContent = t;
+  const fc = document.getElementById('footer_clock');
+  if (fc) fc.textContent = new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
+}
+
+// --- MAIN TICK ---
+async function tick() {
+  tickClock();
+  await refreshCounts();
+  await refreshEvents();
+  await checkDemoStatus();
+}
+// Slower background refresh for secondary data
+async function slowTick() {
+  loadTopAttackers();
+}
+
+// --- EVENT LISTENERS ---
+document.getElementById('btn_save').onclick = saveConfig;
+document.getElementById('btn_download').onclick = () => window.location = '/api/download.csv';
+document.getElementById('btn_clear').onclick = async () => {
+  if (!confirm('Clear alerts log?')) return;
+  const j = await (await fetch('/api/clear',{method:'POST'})).json();
+  if (j.ok) { allEvents=[]; lastTs=0; document.getElementById('rows').innerHTML=''; chartData.labels=[]; chartData.scores=[]; chartData.thresholds=[]; chart.update(); showToast('info','Alerts cleared'); }
+};
+document.getElementById('btn_clear_all').onclick = async () => {
+  if (!confirm('Reset all data & state?')) return;
+  const j = await (await fetch('/api/clear_all',{method:'POST'})).json();
+  if (j.ok) { allEvents=[]; lastTs=0; document.getElementById('rows').innerHTML=''; chartData.labels=[]; chartData.scores=[]; chartData.thresholds=[]; chart.update(); showToast('info','Full reset complete'); }
+};
+document.getElementById('flt_state').onchange = e => { fltState = e.target.value; renderTable(); };
+document.getElementById('flt_blocked').onchange = e => { fltBlockedOnly = !!e.target.checked; renderTable(); };
+document.getElementById('flt_text').oninput = e => { fltText = (e.target.value||'').trim().toLowerCase(); renderTable(); };
+
+// --- INIT ---
+setupCharts();
+loadConfig();
+tick();
+slowTick();
+setInterval(tick, 3000);
+setInterval(slowTick, 15000);
+
+// --- WEBSOCKET ---
 try {
   const socket = io();
-  socket.on("connect", () => {
-    document.getElementById("health_dot").innerHTML = '<span class="pulse" style="width:8px;height:8px;border-radius:50%;background:var(--green);display:inline-block"></span> Live (WebSocket)';
+  socket.on('connect', () => {
+    document.getElementById('sidebar_status_dot').className = 'status-dot';
+    document.getElementById('sidebar_status_text').textContent = 'Live (WebSocket)';
   });
-  socket.on("disconnect", () => {
-    document.getElementById("health_dot").innerHTML = '<span style="width:8px;height:8px;border-radius:50%;background:var(--amber);display:inline-block"></span> Polling mode';
+  socket.on('disconnect', () => {
+    document.getElementById('sidebar_status_dot').className = 'status-dot warn';
+    document.getElementById('sidebar_status_text').textContent = 'Reconnecting...';
   });
-  socket.on("new_alert", (e) => {
-    allEvents.push(e); if(allEvents.length>500) allEvents.shift();
+  socket.on('new_alert', (e) => {
+    allEvents.push(e); if (allEvents.length > 500) allEvents.shift();
     renderTable();
     chartData.labels.push(iso(e.ts)); chartData.scores.push(e.score??0); chartData.thresholds.push(e.effective_threshold??null);
-    if(chartData.labels.length>100){chartData.labels.shift();chartData.scores.shift();chartData.thresholds.shift();}
+    if (chartData.labels.length > 100) { chartData.labels.shift(); chartData.scores.shift(); chartData.thresholds.shift(); }
     chart.update('none');
-    if(e.action&&String(e.action).startsWith('BLOCK')&&e.ts>lastBlockTs){
-      lastBlockTs=e.ts; beep();
-      document.body.style.boxShadow='inset 0 0 0 3px rgba(239,68,68,.25)';
-      setTimeout(()=>document.body.style.boxShadow='none',300);
+    if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
+      lastBlockTs = e.ts; beep();
+      showToast('block', `IP blocked: ${e.src_ip||'unknown'} — ${e.pred_class||'Attack'}`);
     }
-    lastTs=e.ts;
-    refreshCounts(); // Update summary stats
+    lastTs = e.ts;
+    refreshCounts();
   });
-  socket.on("config_changed", () => loadConfig());
+  socket.on('config_changed', () => loadConfig());
 } catch(err) {
-  console.log("Socket.IO not loaded, falling back to polling");
+  document.getElementById('sidebar_status_dot').className = 'status-dot warn';
+  document.getElementById('sidebar_status_text').textContent = 'Polling mode';
 }
 </script>
 </body>

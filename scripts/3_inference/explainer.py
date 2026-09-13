@@ -106,10 +106,15 @@ class RealTimeExplainer:
         self._cache = LRUCache(maxsize=cache_size)
         
         # TreeExplainer is fast and optimized for trees (LightGBM/XGBoost/RF)
-        # providing 'marginal' contributions (approximate but fast) or 'true' SHAP values.
-        # For real-time, we want speed.
         try:
-            self.explainer = shap.TreeExplainer(model)
+            tree_model = model
+            if hasattr(model, "calibrated_classifiers_") and len(model.calibrated_classifiers_) > 0:
+                first_clf = model.calibrated_classifiers_[0]
+                tree_model = getattr(first_clf, "estimator", getattr(first_clf, "base_estimator", model))
+            elif hasattr(model, "estimator"):
+                tree_model = model.estimator
+                
+            self.explainer = shap.TreeExplainer(tree_model)
             self._initialized = True
         except Exception as e:
             print(f"[Explainer] Failed to init TreeExplainer: {e}")

@@ -60,10 +60,8 @@ from colorama import init, Fore, Style
 # Add scripts directory and subdirectories to path for imports
 _scripts_dir = Path(__file__).parent.parent
 sys.path.insert(0, str(_scripts_dir))
-sys.path.insert(0, str(_scripts_dir / "9_utilities"))
-sys.path.insert(0, str(_scripts_dir / "3_inference"))
-sys.path.insert(0, str(_scripts_dir / "4_response"))
-sys.path.insert(0, str(_scripts_dir / "6_threat_intel"))
+from path_setup import configure_paths
+configure_paths()
 from blocker import block_ip as blocker_block_ip
 try:
     from api_dashboard import emit_new_alert
@@ -303,53 +301,50 @@ def load_cfg():
         return DEFAULTS.copy(), 0.0
 
 decision, cfg_mtime = load_cfg()
-THRESHOLD    = decision["threshold"]
-GRACE        = decision["grace"]
-WINDOW       = decision["window"]
-COOLDOWN_SEC = decision["cooldown_sec"]
-INSTANT_BLK  = decision["instant_block"]
-DRY_RUN      = decision["dry_run"]
-USE_ADAPTIVE = decision["use_adaptive"]
-ADAPT_WIN    = decision["adaptive_window"]
-ADAPT_SENS   = decision["adaptive_sensitivity"]
-ADAPT_MIN    = decision["adaptive_min"]
-IP_ANOM_Z    = decision["ip_anomaly_z"]
-# Hybrid mode globals
-UNSUP_ENABLED    = decision["unsup_enabled"]
-HYBRID_MODE      = decision["hybrid_mode"]
-HYBRID_COMBINE   = decision["hybrid_combine"]
-SUP_WEIGHT       = decision["supervised_weight"]
-UNSUP_WEIGHT     = decision["unsupervised_weight"]
-UNSUP_ONLY_LABEL = decision["unsup_only_label"]
 
-def maybe_reload():
-    global decision, cfg_mtime, THRESHOLD, GRACE, WINDOW, COOLDOWN_SEC, INSTANT_BLK, DRY_RUN
+
+def _apply_decision_globals():
+    """Apply the `decision` dict values to module-level globals.
+
+    Called once at startup and again whenever the config file changes.
+    This centralizes the mapping so there is only one place to maintain.
+    """
+    global THRESHOLD, GRACE, WINDOW, COOLDOWN_SEC, INSTANT_BLK, DRY_RUN
     global USE_ADAPTIVE, ADAPT_WIN, ADAPT_SENS, ADAPT_MIN, IP_ANOM_Z
     global UNSUP_ENABLED, HYBRID_MODE, HYBRID_COMBINE, SUP_WEIGHT, UNSUP_WEIGHT, UNSUP_ONLY_LABEL
+
+    THRESHOLD    = decision["threshold"]
+    GRACE        = decision["grace"]
+    WINDOW       = decision["window"]
+    COOLDOWN_SEC = decision["cooldown_sec"]
+    INSTANT_BLK  = decision["instant_block"]
+    DRY_RUN      = decision["dry_run"]
+    USE_ADAPTIVE = decision["use_adaptive"]
+    ADAPT_WIN    = decision["adaptive_window"]
+    ADAPT_SENS   = decision["adaptive_sensitivity"]
+    ADAPT_MIN    = decision["adaptive_min"]
+    IP_ANOM_Z    = decision["ip_anomaly_z"]
+    UNSUP_ENABLED    = decision["unsup_enabled"]
+    HYBRID_MODE      = decision["hybrid_mode"]
+    HYBRID_COMBINE   = decision["hybrid_combine"]
+    SUP_WEIGHT       = decision["supervised_weight"]
+    UNSUP_WEIGHT     = decision["unsupervised_weight"]
+    UNSUP_ONLY_LABEL = decision["unsup_only_label"]
+
+
+_apply_decision_globals()
+
+
+def maybe_reload():
+    global decision, cfg_mtime
     try:
         mtime = CFG_PATH.stat().st_mtime
     except FileNotFoundError:
         mtime = 0.0
     if mtime != cfg_mtime:
         decision, cfg_mtime = load_cfg()
-        THRESHOLD    = decision["threshold"]
-        GRACE        = decision["grace"]
-        WINDOW       = decision["window"]
-        COOLDOWN_SEC = decision["cooldown_sec"]
-        INSTANT_BLK  = decision["instant_block"]
-        DRY_RUN      = decision["dry_run"]
-        USE_ADAPTIVE = decision["use_adaptive"]
-        ADAPT_WIN    = decision["adaptive_window"]
-        ADAPT_SENS   = decision["adaptive_sensitivity"]
-        ADAPT_MIN    = decision["adaptive_min"]
-        IP_ANOM_Z    = decision["ip_anomaly_z"]
-        UNSUP_ENABLED    = decision["unsup_enabled"]
-        HYBRID_MODE      = decision["hybrid_mode"]
-        HYBRID_COMBINE   = decision["hybrid_combine"]
-        SUP_WEIGHT       = decision["supervised_weight"]
-        UNSUP_WEIGHT     = decision["unsupervised_weight"]
-        UNSUP_ONLY_LABEL = decision["unsup_only_label"]
-        print(Fore.CYAN + f"🔁 Reloaded config:"
+        _apply_decision_globals()
+        print(Fore.CYAN + f"🔄 Reloaded config:"
               f" thr={THRESHOLD} adapt={USE_ADAPTIVE} dry={DRY_RUN} mode={HYBRID_MODE}" + Style.RESET_ALL)
 
 # ---------- State ----------
@@ -569,13 +564,15 @@ def compute_adaptive_threshold(
     base_threshold: float,
     sensitivity: float,
     min_threshold: float,
+    max_threshold: float = 0.92,
 ) -> float:
     """
     Compute an adaptive threshold from recent scores.
 
     - If there are fewer than 10 scores, returns base_threshold.
-    - Otherwise: mean + sensitivity * std, with a floor at min_threshold and
-      never lower than base_threshold (we prefer stricter thresholds).
+    - Otherwise: mean + sensitivity * std, bounded between min_threshold and max_threshold.
+      Never drops below base_threshold, and never exceeds max_threshold (to prevent ongoing
+      attacks from pushing the threshold to unreachable 1.0).
     """
     if len(scores) < 10:
         return float(base_threshold)
@@ -584,6 +581,7 @@ def compute_adaptive_threshold(
     sigma = float(arr.std())
     dyn_thr = mu + (sensitivity * sigma)
     dyn_thr = max(dyn_thr, float(min_threshold))
+    dyn_thr = min(dyn_thr, float(max_threshold))
     return max(float(base_threshold), dyn_thr)
 
 

@@ -14,13 +14,7 @@ Outputs:
 -----------------------------------------------------------------------------
 """
 
-import pandas as pd
-import numpy as np
-import joblib
-import json
-import os
-from pathlib import Path
-from sklearn.model_selection import train_test_split
+import sys
 import pandas as pd
 import numpy as np
 import joblib
@@ -30,9 +24,11 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score, accuracy_score
 
-# Add scripts dir to path to import ensemble
-import sys
-sys.path.insert(0, str(Path(__file__).parent))
+# Add scripts directory and subdirectories to path for imports
+_scripts_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 from ensemble import EnsemblePredictor
 
 # Paths

@@ -1,5 +1,5 @@
 {
-  "threshold": 0.7639460097607758,
+  "threshold": 0.829538881778717,
   "features": [
     "flows",
     "bytes_total",
@@ -17,13 +17,21 @@
   ],
   "label_positive": 1,
   "label_negative": 0,
-  "csv_path": "data\\it_training_cicids2017_mapped.csv",
-  "model_version": "1.0.2",
-  "trained_at": "2025-12-08T13:00:41.831692+00:00",
-  "model_type": "LightGBM",
-  "roc_auc": 0.9994,
-  "pr_auc": 0.9977,
-  "train_samples": 2264594,
-  "val_samples": 566149,
-  "description": "IoTGuard binary classifier for IoT intrusion detection"
+  "csv_path": "data/it_training_clean.csv",
+  "model_version": "2.0.0",
+  "trained_at": "2026-08-25T21:22:48.513361+00:00",
+  "model_type": "LightGBM + Platt Calibration (5-Fold CV)",
+  "roc_auc": 0.9649,
+  "pr_auc": 0.9545,
+  "brier_score": 0.0339,
+  "train_samples": 70000,
+  "n_splits": 5,
+  "regularization": {
+    "max_depth": 5,
+    "num_leaves": 16,
+    "reg_alpha": 2.0,
+    "reg_lambda": 5.0,
+    "min_child_samples": 80
+  },
+  "description": "IoTGuard calibrated IT classifier for intrusion detection"
 }

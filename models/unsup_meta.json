@@ -15,7 +15,7 @@
     "std_bytes",
     "iat_mean"
   ],
-  "threshold": 0.3546821691399286,
+  "threshold": 0.5343303042470113,
   "contamination": 0.05,
   "train_on": "benign_only",
   "csv_path": "data/iotguard_training_clean.csv",

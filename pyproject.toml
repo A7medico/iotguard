@@ -99,3 +99,11 @@ exclude_lines = [
     "if __name__ == .__main__.:",
     "raise NotImplementedError",
 ]
+
+# -----------------------------------------------------------------------------
+# Vercel Deployment Configuration
+# https://vercel.com/docs/frameworks/backend/flask#exporting-the-flask-application
+# -----------------------------------------------------------------------------
+[tool.vercel]
+entrypoint = "scripts.5_dashboard.api_dashboard:app"
+

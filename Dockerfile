@@ -81,7 +81,8 @@ EXPOSE 5001
 # Kubernetes/Docker health check - verifies the API is responding
 # Checks every 30 seconds, timeout after 10 seconds, 3 retries before unhealthy
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:5001/health/live')" || exit 1
+    CMD python -c "import urllib.request, os; p = os.environ.get('PORT', '5001'); urllib.request.urlopen(f'http://localhost:{p}/health/live')" || exit 1
+
 
 # -----------------------------------------------------------------------------
 # Startup Command

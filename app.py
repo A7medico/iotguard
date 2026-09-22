@@ -20,5 +20,6 @@ app = _dashboard.app
 if __name__ == "__main__":
     import os
     host = os.environ.get("IOTGUARD_HOST", "0.0.0.0")
-    port = int(os.environ.get("IOTGUARD_PORT", "5001"))
+    port = int(os.environ.get("PORT") or os.environ.get("IOTGUARD_PORT") or "5001")
     app.run(host=host, port=port, debug=False)
+

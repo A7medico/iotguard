@@ -19145,42 +19145,42 @@ tbody tr.selected { background: rgba(59, 130, 246, 0.1); }
 .shap-val.neg { color: var(--accent); }
 
 /* ============================================================================
-   NOTIFICATION TOASTS
+   NOTIFICATION TOASTS (Unobtrusive Bottom-Right)
    ============================================================================ */
 .toast-container {
   position: fixed;
-  top: 16px;
-  right: 16px;
+  bottom: 24px;
+  right: 24px;
   z-index: 2000;
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   gap: 8px;
   pointer-events: none;
+  max-width: 340px;
 }
 .toast-item {
   pointer-events: auto;
-  background: var(--surface);
+  background: rgba(15, 23, 42, 0.95);
   border: 1px solid var(--border2);
   border-radius: var(--radius-sm);
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   backdrop-filter: blur(16px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
   transform: translateX(120%);
-  animation: toastSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  max-width: 380px;
+  animation: toastSlideIn 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
-.toast-item.exit { animation: toastSlideOut 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.toast-item.exit { animation: toastSlideOut 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
 .toast-item.attack { border-left: 3px solid var(--red); }
 .toast-item.block { border-left: 3px solid var(--amber); }
-.toast-item.info { border-left: 3px solid var(--accent); }
-.toast-item .toast-icon { font-size: 18px; }
-.toast-item .toast-msg { flex: 1; }
-.toast-item .toast-time { font-size: 10px; color: var(--text3); }
+.toast-item.info, .toast-item.ok { border-left: 3px solid var(--accent); }
+.toast-item.bad, .toast-item.error { border-left: 3px solid var(--red); }
+.toast-item .toast-icon { font-size: 16px; }
+.toast-item .toast-msg { flex: 1; word-break: break-word; }
 
 @keyframes toastSlideIn {
   from { transform: translateX(120%); opacity: 0; }
@@ -19402,7 +19402,7 @@ tbody tr.selected { background: rgba(59, 130, 246, 0.1); }
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
-<link rel="stylesheet" href="/static/dashboard.css">
+<link rel="stylesheet" href="/static/dashboard.css?v=4.0.1">
 </head>
 <body>
 
@@ -20151,17 +20151,21 @@ function threatHtml(t){
   return h||'<span style="color:var(--text3)">-</span>';
 }
 
-// --- NOTIFICATION TOASTS ---
+// --- NOTIFICATION TOASTS (Unobtrusive Bottom-Right) ---
 function showToast(type, msg) {
   const c = document.getElementById('toast_container');
+  if (!c) return;
   const el = document.createElement('div');
   el.className = 'toast-item ' + type;
-  const icons = {attack:'🚨',block:'🛑',info:'ℹ️'};
-  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span><span class="toast-time">${new Date().toLocaleTimeString()}</span>`;
+  const icons = {attack:'🚨',block:'🛑',info:'ℹ️',bad:'❌',ok:'✅',error:'❌'};
+  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;line-height:1;padding:0 0 0 8px;margin-left:auto">&times;</button>`;
   c.appendChild(el);
-  setTimeout(()=>{el.classList.add('exit');setTimeout(()=>el.remove(),300)},5000);
-  // Keep max 5 toasts
-  while(c.children.length > 5) c.children[0].remove();
+  setTimeout(()=>{
+    el.classList.add('exit');
+    setTimeout(()=>el.remove(), 250);
+  }, 3000);
+  // Keep max 3 toasts
+  while(c.children.length > 3) c.children[0].remove();
 }
 
 // --- ANIMATED NUMBER UPDATE ---
@@ -20856,14 +20860,10 @@ async function refreshEvents() {
     chart.data.datasets[0].data = chartData.scores;
     chart.data.datasets[1].data = chartData.thresholds;
     chart.update('none');
-    // Block alerts
+    // Track latest block timestamp
     for (const e of list) {
       if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
         lastBlockTs = e.ts;
-        beep();
-        showToast('block', `IP blocked: ${e.src_ip || 'unknown'} — ${e.pred_class || 'Attack'} (score: ${(e.score||0).toFixed(3)})`);
-      } else if (e.state === 'ATTACK' && e.ts > lastBlockTs - 5) {
-        showToast('attack', `Attack detected: ${e.pred_class || 'Anomaly'} (score: ${(e.score||0).toFixed(3)})`);
       }
     }
     lastTs = list[list.length - 1].ts;
@@ -21247,8 +21247,7 @@ try {
     if (chartData.labels.length > 100) { chartData.labels.shift(); chartData.scores.shift(); chartData.thresholds.shift(); }
     chart.update('none');
     if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
-      lastBlockTs = e.ts; beep();
-      showToast('block', `IP blocked: ${e.src_ip||'unknown'} — ${e.pred_class||'Attack'}`);
+      lastBlockTs = e.ts;
     }
     lastTs = e.ts;
     refreshCounts();

@@ -72,21 +72,82 @@ try:
     from metrics import (
         get_metrics_text, get_metrics_json,
         record_detection, record_block, record_api_request,
-        record_inference_time, record_score, active_connections
+        record_inference_time, record_score, active_connections,
+        update_firewall_telemetry
     )
     METRICS_AVAILABLE = True
 except ImportError:
     METRICS_AVAILABLE = False
+    update_firewall_telemetry = lambda *a, **kw: None
 
 try:
     from auth import (
         require_auth as jwt_require_auth,
-        authenticate_user, rate_limit,
-        get_token_from_request, validate_token
+        require_role,
+        register_api_key,
+        validate_api_key,
+        list_api_keys,
+        revoke_api_key,
+        ROLE_ADMIN,
+        ROLE_SOC_ANALYST,
+        ROLE_AUDITOR,
+        ROLE_EDGE_SENSOR,
+        ALL_ROLES,
+        authenticate_user,
+        rate_limit,
+        get_token_from_request,
+        validate_token,
     )
     AUTH_AVAILABLE = True
 except ImportError:
     AUTH_AVAILABLE = False
+    ROLE_ADMIN = "ADMIN"
+    ROLE_SOC_ANALYST = "SOC_ANALYST"
+    ROLE_AUDITOR = "AUDITOR"
+    ROLE_EDGE_SENSOR = "EDGE_SENSOR"
+    ALL_ROLES = {ROLE_ADMIN, ROLE_SOC_ANALYST, ROLE_AUDITOR, ROLE_EDGE_SENSOR}
+    require_role = lambda *a, **k: (lambda f: f)
+    register_api_key = lambda *a, **k: "dummy_key"
+    validate_api_key = lambda *a, **k: None
+    list_api_keys = lambda *a, **k: []
+    revoke_api_key = lambda *a, **k: False
+
+# Enterprise Relational Storage Engine
+try:
+    from storage_engine import get_storage_engine, SQLiteStorageEngine
+    STORAGE_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _storage_mod = importlib.import_module("scripts.9_utilities.storage_engine")
+        get_storage_engine = _storage_mod.get_storage_engine
+        SQLiteStorageEngine = _storage_mod.SQLiteStorageEngine
+        STORAGE_AVAILABLE = True
+    except ImportError:
+        STORAGE_AVAILABLE = False
+        get_storage_engine = lambda *a, **k: None
+
+# Cryptographic Audit Ledger
+try:
+    from audit_ledger import (
+        get_audit_ledger,
+        record_audit_event,
+        verify_audit_ledger,
+    )
+    AUDIT_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _audit_mod = importlib.import_module("scripts.9_utilities.audit_ledger")
+        get_audit_ledger = _audit_mod.get_audit_ledger
+        record_audit_event = _audit_mod.record_audit_event
+        verify_audit_ledger = _audit_mod.verify_audit_ledger
+        AUDIT_AVAILABLE = True
+    except ImportError:
+        AUDIT_AVAILABLE = False
+        record_audit_event = lambda *a, **k: {}
+        verify_audit_ledger = lambda *a, **k: (True, "AUDIT_UNAVAILABLE", None)
+        get_audit_ledger = lambda *a, **k: None
 
 try:
     from ensemble import EnsemblePredictor, get_ensemble
@@ -99,6 +160,143 @@ try:
     ALERTS_AVAILABLE = True
 except ImportError:
     ALERTS_AVAILABLE = False
+
+try:
+    from playbooks import (
+        TAXONOMIES,
+        REMEDIATION_PLAYBOOKS,
+        normalize_taxonomy,
+        get_remediation_playbook,
+    )
+    PLAYBOOKS_AVAILABLE = True
+except ImportError:
+    PLAYBOOKS_AVAILABLE = False
+    TAXONOMIES = []
+    REMEDIATION_PLAYBOOKS = {}
+    normalize_taxonomy = lambda x, src=None: "ZeroDay-Anomaly"
+    get_remediation_playbook = lambda x, src_ip=None: {}
+
+try:
+    from blocker import (
+        block_ip, unblock_ip, get_active_blocks, is_ip_blocked,
+        get_active_driver, get_driver_telemetry
+    )
+    BLOCKER_AVAILABLE = True
+except ImportError:
+    BLOCKER_AVAILABLE = False
+    block_ip = lambda ip, **kw: (False, "blocker not available")
+    unblock_ip = lambda ip, **kw: (False, "blocker not available")
+    get_active_blocks = lambda: []
+    is_ip_blocked = lambda ip: False
+    get_active_driver = lambda dry_run=False: "none"
+    get_driver_telemetry = lambda: {
+        "active_driver": "none",
+        "os": "unknown",
+        "ebpf_available": False,
+        "ebpf_attached": False,
+        "xdp_interface": "eth0",
+        "drop_stats": {},
+        "total_xdp_drops": 0,
+    }
+
+try:
+    from threat_intel import ThreatIntel
+    THREAT_INTEL = ThreatIntel()
+except ImportError:
+    THREAT_INTEL = None
+
+try:
+    from federated_learning import get_federated_coordinator
+    FEDERATED_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _fl = importlib.import_module("scripts.2_training.federated_learning")
+        get_federated_coordinator = _fl.get_federated_coordinator
+        FEDERATED_AVAILABLE = True
+    except Exception:
+        FEDERATED_AVAILABLE = False
+        get_federated_coordinator = None
+
+# =============================================================================
+# OPENAPI & SIEM EXPORTER INTEGRATION
+# =============================================================================
+try:
+    from openapi_spec import get_openapi_spec, get_swagger_ui_html
+    OPENAPI_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _oas = importlib.import_module("scripts.5_dashboard.openapi_spec")
+        get_openapi_spec = _oas.get_openapi_spec
+        get_swagger_ui_html = _oas.get_swagger_ui_html
+        OPENAPI_AVAILABLE = True
+    except Exception:
+        OPENAPI_AVAILABLE = False
+        get_openapi_spec = lambda: {}
+        get_swagger_ui_html = lambda *a, **k: "<h1>OpenAPI Docs Not Available</h1>"
+
+try:
+    from siem_exporter import format_cef_event, generate_stix_bundle, send_syslog
+    SIEM_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _siem = importlib.import_module("scripts.4_response.siem_exporter")
+        format_cef_event = _siem.format_cef_event
+        generate_stix_bundle = _siem.generate_stix_bundle
+        send_syslog = _siem.send_syslog
+        SIEM_AVAILABLE = True
+    except Exception:
+        SIEM_AVAILABLE = False
+        format_cef_event = lambda e: ""
+        generate_stix_bundle = lambda *a, **k: {"type": "bundle", "objects": []}
+        send_syslog = lambda *a, **k: (False, "SIEM exporter not available")
+
+# =============================================================================
+# FLEET CONTROL PLANE & DISTRIBUTED EDGE SENSORS (Phase 10)
+# =============================================================================
+try:
+    from edge_agent import (
+        get_fleet_control_plane,
+        FleetControlPlane,
+        verify_hmac_request,
+        compute_hmac_signature,
+    )
+    FLEET_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _ea = importlib.import_module("scripts.9_utilities.edge_agent")
+        get_fleet_control_plane = _ea.get_fleet_control_plane
+        FleetControlPlane = _ea.FleetControlPlane
+        verify_hmac_request = _ea.verify_hmac_request
+        compute_hmac_signature = _ea.compute_hmac_signature
+        FLEET_AVAILABLE = True
+    except Exception:
+        FLEET_AVAILABLE = False
+        get_fleet_control_plane = None
+        FleetControlPlane = None
+        verify_hmac_request = None
+        compute_hmac_signature = None
+
+# =============================================================================
+# SOC EXECUTIVE SLA TELEMETRY & COMPLIANCE (Phase 11)
+# =============================================================================
+try:
+    from soc_metrics import get_soc_metrics_tracker, generate_executive_report
+    SOC_METRICS_AVAILABLE = True
+except ImportError:
+    try:
+        import importlib
+        _soc = importlib.import_module("scripts.5_dashboard.soc_metrics")
+        get_soc_metrics_tracker = _soc.get_soc_metrics_tracker
+        generate_executive_report = _soc.generate_executive_report
+        SOC_METRICS_AVAILABLE = True
+    except Exception:
+        SOC_METRICS_AVAILABLE = False
+        get_soc_metrics_tracker = None
+        generate_executive_report = None
 
 # =============================================================================
 # RATE LIMITING & ACCESS CONTROL
@@ -207,7 +405,7 @@ _alerts_lock = threading.Lock()
 _config_lock = threading.Lock()
 
 
-def _iter_alerts():
+def _iter_alerts(limit=None):
     """Iterate over alerts with thread-safe file access."""
     if not ALERT_LOG.exists():
         return
@@ -220,6 +418,9 @@ def _iter_alerts():
             logger.warning(f"Could not read alerts file: {e}")
             return
     
+    if limit is not None and isinstance(limit, int) and limit > 0:
+        lines = lines[-limit:]
+
     for line in lines:
         line = line.strip()
         if not line:
@@ -373,6 +574,20 @@ def prometheus_metrics():
     """Prometheus metrics endpoint for monitoring."""
     if not METRICS_AVAILABLE:
         return Response("Metrics not available", 501)
+
+    try:
+        dt = get_driver_telemetry()
+        blocks = get_active_blocks()
+        update_firewall_telemetry(
+            driver=dt.get("active_driver", "auto"),
+            blocked_ips_count=len(blocks),
+            os_name=dt.get("os", "linux"),
+            xdp_drops=dt.get("total_xdp_drops", 0),
+            interface=dt.get("xdp_interface", "eth0"),
+        )
+    except Exception:
+        pass
+
     return Response(get_metrics_text(), mimetype="text/plain")
 
 
@@ -397,6 +612,13 @@ def api_v1_login():
     success, token, error = authenticate_user(username, password)
     
     if success:
+        if AUDIT_AVAILABLE and record_audit_event is not None:
+            record_audit_event(
+                actor=username,
+                action="USER_LOGIN",
+                role=ROLE_ADMIN,
+                payload={"ip": request.remote_addr},
+            )
         return jsonify({"ok": True, "token": token})
     return jsonify({"ok": False, "error": error}), 401
 
@@ -486,6 +708,272 @@ def api_v1_alerts_config():
     })
 
 
+# ============================================================================
+# FEDERATED LEARNING & DRIFT MONITORING (Phase 6)
+# ============================================================================
+
+@app.get("/api/v1/federated/status")
+@app.get("/api/federated/status")
+def api_federated_status():
+    """Return status of edge federated learning fleet and online feature drift."""
+    if not FEDERATED_AVAILABLE or get_federated_coordinator is None:
+        return jsonify({"ok": False, "error": "Federated learning subsystem not available"}), 503
+    coord = get_federated_coordinator()
+    return jsonify(coord.get_fleet_status())
+
+
+@app.post("/api/v1/federated/round")
+@app.post("/api/federated/round")
+@require_role([ROLE_ADMIN, ROLE_SOC_ANALYST])
+def api_federated_round():
+    """Trigger a federated aggregation round and drift check."""
+    if not FEDERATED_AVAILABLE or get_federated_coordinator is None:
+        return jsonify({"ok": False, "error": "Federated learning subsystem not available"}), 503
+
+    data = request.get_json(silent=True) or {}
+    epochs = int(data.get("epochs", 3))
+    lr = float(data.get("lr", 0.02))
+    reason = str(data.get("reason", "operator_trigger"))
+
+    coord = get_federated_coordinator()
+    result = coord.execute_round(epochs=epochs, lr=lr, trigger_reason=reason)
+
+    if AUDIT_AVAILABLE and record_audit_event is not None:
+        record_audit_event(
+            actor=getattr(g, "current_user", "operator"),
+            action="FEDERATED_ROUND_TRIGGERED",
+            role=getattr(g, "current_role", ROLE_SOC_ANALYST),
+            payload={"round": result.get("round"), "reason": reason}
+        )
+
+    if SOCKETIO_AVAILABLE:
+        try:
+            socketio.emit("federated_update", result)
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "message": f"Federated aggregation round {result['round']} completed",
+        "round_report": result,
+    })
+
+
+# ============================================================================
+# FLEET CONTROL PLANE & DISTRIBUTED EDGE SENSORS (Phase 10)
+# ============================================================================
+
+@app.post("/api/v1/fleet/register")
+@app.post("/api/fleet/register")
+def api_fleet_register():
+    """Register an edge sensor gateway with the central SOC control plane."""
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    data = request.get_json(silent=True) or {}
+    node_id = data.get("node_id")
+    if not node_id:
+        return jsonify({"ok": False, "error": "Missing required field: node_id"}), 400
+
+    site_type = data.get("site_type", "smart_home")
+    hostname = data.get("hostname", "")
+    ip = data.get("ip", request.remote_addr or "127.0.0.1")
+    capabilities = data.get("capabilities", [])
+    model_hash = data.get("model_hash", "")
+    secret = data.get("secret")
+
+    cp = get_fleet_control_plane()
+    res = cp.register_node(
+        node_id=node_id,
+        site_type=site_type,
+        hostname=hostname,
+        ip=ip,
+        capabilities=capabilities,
+        model_hash=model_hash,
+        secret=secret,
+    )
+    return jsonify(res), 201
+
+
+@app.post("/api/v1/fleet/heartbeat")
+@app.post("/api/fleet/heartbeat")
+def api_fleet_heartbeat():
+    """
+    Ingest periodic health & telemetry heartbeat from an edge sensor gateway.
+    Enforces HMAC-SHA256 request signing and 60-second replay protection.
+    """
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    node_id = request.headers.get("X-IoTGuard-Node-Id")
+    signature = request.headers.get("X-IoTGuard-Signature")
+    timestamp = request.headers.get("X-IoTGuard-Timestamp")
+
+    if not node_id or not signature or not timestamp:
+        return jsonify({
+            "ok": False,
+            "error": "Missing HMAC authentication headers (X-IoTGuard-Node-Id, X-IoTGuard-Signature, X-IoTGuard-Timestamp)"
+        }), 401
+
+    cp = get_fleet_control_plane()
+    secret = cp.get_node_secret(node_id)
+    if not secret:
+        return jsonify({
+            "ok": False,
+            "error": f"Node '{node_id}' is not registered with fleet control plane"
+        }), 404
+
+    # Verify HMAC signature & replay clock skew (60s max window)
+    raw_body = request.get_data(as_text=True)
+    is_valid, reason = verify_hmac_request(
+        secret=secret,
+        signature=signature,
+        timestamp_val=timestamp,
+        body=raw_body,
+        max_skew_sec=60.0
+    )
+    if not is_valid:
+        return jsonify({"ok": False, "error": reason}), 401
+
+    # Ingest telemetry payload
+    data = request.get_json(silent=True) or {}
+    try:
+        ack = cp.record_heartbeat(node_id, data)
+        return jsonify(ack), 200
+    except KeyError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except Exception as e:
+        logger.error(f"Error recording heartbeat for {node_id}: {e}")
+        return jsonify({"ok": False, "error": f"Internal error: {e}"}), 500
+
+
+@app.get("/api/v1/fleet/nodes")
+@app.get("/api/fleet/nodes")
+def api_fleet_nodes():
+    """Return live health, latency, model sync status, and XDP drop stats for all edge gateways."""
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    cp = get_fleet_control_plane()
+    nodes = cp.get_fleet_nodes()
+    online_count = sum(1 for n in nodes if n.get("status") == "online")
+    total_xdp_drops = sum(n.get("active_xdp_drops", 0) for n in nodes)
+
+    return jsonify({
+        "ok": True,
+        "nodes": nodes,
+        "total_nodes": len(nodes),
+        "online_nodes": online_count,
+        "total_fleet_xdp_drops": total_xdp_drops,
+        "central_model_hash": cp.get_central_model_hash(),
+        "timestamp": time.time(),
+    })
+
+
+@app.post("/api/v1/fleet/broadcast_block")
+@app.post("/api/fleet/broadcast_block")
+@require_role([ROLE_ADMIN, ROLE_SOC_ANALYST])
+def api_fleet_broadcast_block():
+    """Broadcast an attacker IP to all remote edge sensors for herd immunity quarantine."""
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"ok": False, "error": "No IP provided"}), 400
+
+    severity = data.get("severity", "KILL")
+    reason = data.get("reason", "Central SOC Fleet Quarantine")
+    dry_run = data.get("dry_run", load_cfg().get("decision", {}).get("dry_run", True))
+
+    ok, msg = block_ip(ip, severity=severity, reason=reason, dry_run=dry_run)
+
+    cp = get_fleet_control_plane()
+    block_entry = cp.broadcast_global_block(
+        ip=ip,
+        reason=reason,
+        severity=severity,
+        source=f"soc:{getattr(g, 'current_user', 'operator')}"
+    )
+
+    if SOCKETIO_AVAILABLE:
+        try:
+            socketio.emit("topology_update", {"action": "fleet_block", "ip": ip, "severity": severity})
+        except Exception:
+            pass
+
+    return jsonify({
+        "ok": True,
+        "ip": ip,
+        "severity": severity,
+        "message": f"Global herd immunity block broadcasted to fleet: {msg}",
+        "block_entry": block_entry,
+        "dry_run": dry_run,
+    })
+
+
+@app.get("/api/v1/fleet/blocks")
+@app.get("/api/fleet/blocks")
+def api_fleet_blocks():
+    """Return active fleet-wide broadcast quarantine blocks."""
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    cp = get_fleet_control_plane()
+    blocks = cp.get_global_blocks()
+    return jsonify({
+        "ok": True,
+        "global_blocks": blocks,
+        "count": len(blocks),
+    })
+
+
+# ============================================================================
+# SOC EXECUTIVE SLA & COMPLIANCE REPORTING (Phase 11)
+# ============================================================================
+
+@app.get("/api/v1/soc/kpis")
+@app.get("/api/soc/kpis")
+def api_soc_kpis():
+    """Return live Enterprise SecOps KPIs (MTTD, MTTR, MITRE matrix, Fleet Immunity)."""
+    if not SOC_METRICS_AVAILABLE or get_soc_metrics_tracker is None:
+        return jsonify({"ok": False, "error": "SOC metrics engine not available"}), 503
+
+    tracker = get_soc_metrics_tracker()
+    return jsonify(tracker.get_soc_kpis())
+
+
+@app.get("/api/v1/reports/executive")
+@app.get("/api/reports/executive")
+def api_reports_executive():
+    """
+    Generate an Executive Security Posture & Compliance Report.
+    Formats supported: 'json', 'html', 'markdown'.
+    """
+    if not SOC_METRICS_AVAILABLE or generate_executive_report is None:
+        return jsonify({"ok": False, "error": "Executive report generator not available"}), 503
+
+    fmt = request.args.get("format", "json").lower()
+    report = generate_executive_report(format=fmt)
+
+    if fmt == "html":
+        return Response(report, mimetype="text/html")
+    elif fmt in ("markdown", "md"):
+        return Response(
+            report,
+            mimetype="text/markdown",
+            headers={"Content-Disposition": "inline; filename=soc_executive_report.md"}
+        )
+    else:
+        if isinstance(report, dict):
+            res_dict = dict(report)
+            res_dict["ok"] = True
+            res_dict["report"] = report
+            return jsonify(res_dict)
+        return jsonify({"ok": True, "report": report})
+
+
 # Enhanced health endpoints
 @app.get("/health/live")
 def health_live():
@@ -524,16 +1012,18 @@ def api_latest():
 
 @app.get("/api/counts")
 def api_counts():
-    """Counts in the last X minutes (default 60)."""
+    """Counts in the last X minutes (default 60) with taxonomy breakdown."""
     mins = float(request.args.get("window_minutes", 60))
     cutoff = now_ts() - (mins * 60)
     total = attacks = blocks = 0
     class_counts = {}
+    category_counts = {}
     block_breakdown = {}
     for evt in _iter_alerts() or []:
         if evt.get("ts", 0) >= cutoff:
             total += 1
-            if evt.get("state") == "ATTACK":
+            is_atk = evt.get("state") == "ATTACK"
+            if is_atk:
                 attacks += 1
             # Treat any BLOCK-* severity as a block event
             action = str(evt.get("action") or "")
@@ -543,6 +1033,14 @@ def api_counts():
             c = evt.get("pred_class")
             if c is not None:
                 class_counts[c] = class_counts.get(c, 0) + 1
+            
+            # Taxonomy breakdown
+            cat = evt.get("attack_category")
+            if not cat and is_atk:
+                cat = normalize_taxonomy(c, evt.get("detection_source"))
+            if cat and is_atk:
+                category_counts[cat] = category_counts.get(cat, 0) + 1
+
     return jsonify({
         "ok": True,
         "window_minutes": mins,
@@ -550,18 +1048,102 @@ def api_counts():
         "attacks": attacks,
         "blocks": blocks,
         "class_counts": class_counts,
+        "category_counts": category_counts,
         "block_breakdown": block_breakdown,
     })
 
 @app.get("/api/events")
 def api_events():
-    """Return events since a given timestamp (or last 200 if not provided)."""
-    since = request.args.get("since_ts", type=float)
-    if since is None:
-        data = read_last_n(200)
-    else:
-        data = [e for e in (_iter_alerts() or []) if e.get("ts", 0) > since]
-    return jsonify({"ok": True, "events": data, "server_time": now_ts()})
+    """Return events with sub-millisecond indexed queries (via storage_engine) or file tailing fallback, enriched with playbooks."""
+    src_ip = request.args.get("ip") or request.args.get("src_ip")
+    category = request.args.get("category") or request.args.get("attack_category")
+    min_score = request.args.get("min_score", type=float)
+    max_score = request.args.get("max_score", type=float)
+    response_tier = request.args.get("tier") or request.args.get("response_tier")
+    start_ts = request.args.get("start_ts", type=float) or request.args.get("since_ts", type=float)
+    end_ts = request.args.get("end_ts", type=float)
+    limit = request.args.get("limit", default=200, type=int)
+
+    has_filters = any([src_ip, category, min_score is not None, max_score is not None, response_tier, end_ts is not None])
+
+    raw = None
+    # 1. High-Performance Relational Query if storage engine is active
+    if STORAGE_AVAILABLE and get_storage_engine is not None:
+        try:
+            engine = get_storage_engine()
+            if engine is not None:
+                db_results = engine.query_events(
+                    src_ip=src_ip,
+                    category=category,
+                    min_score=min_score,
+                    max_score=max_score,
+                    response_tier=response_tier,
+                    start_ts=start_ts,
+                    end_ts=end_ts,
+                    limit=limit,
+                )
+                if db_results:
+                    raw = db_results
+        except Exception:
+            pass
+
+    # 2. File / memory fallback for backwards compatibility
+    if raw is None:
+        if start_ts is None:
+            all_raw = read_last_n(max(limit, 200))
+        else:
+            all_raw = [e for e in (_iter_alerts() or []) if e.get("ts", 0) > start_ts]
+
+        if has_filters:
+            filtered = []
+            for e in all_raw:
+                if src_ip and e.get("src_ip") != src_ip:
+                    continue
+                if category and e.get("attack_category") != category and e.get("pred_class") != category:
+                    continue
+                if min_score is not None and e.get("score", 0.0) < min_score:
+                    continue
+                if max_score is not None and e.get("score", 0.0) > max_score:
+                    continue
+                if response_tier and e.get("response_tier") != response_tier and e.get("state") != response_tier and e.get("action") != response_tier:
+                    continue
+                if end_ts is not None and e.get("ts", 0) > end_ts:
+                    continue
+                filtered.append(e)
+                if len(filtered) >= limit:
+                    break
+            raw = filtered
+        else:
+            raw = all_raw[:limit]
+
+    data = []
+    for e in raw:
+        evt = dict(e)
+        if evt.get("state") == "ATTACK":
+            if not evt.get("attack_category"):
+                evt["attack_category"] = normalize_taxonomy(evt.get("pred_class"), evt.get("detection_source"))
+            if not evt.get("remediation_playbook") and evt.get("attack_category"):
+                evt["remediation_playbook"] = get_remediation_playbook(evt["attack_category"], src_ip=evt.get("src_ip"))
+        data.append(evt)
+
+    return jsonify({"ok": True, "events": data, "count": len(data), "server_time": now_ts()})
+
+@app.get("/api/playbooks")
+def api_playbooks():
+    """Return all available remediation playbooks and canonical taxonomies."""
+    return jsonify({
+        "ok": True,
+        "taxonomies": TAXONOMIES,
+        "playbooks": REMEDIATION_PLAYBOOKS,
+    })
+
+@app.get("/api/playbook/<category>")
+def api_playbook_detail(category: str):
+    """Return the structured remediation playbook for a specific attack category."""
+    canon = normalize_taxonomy(category)
+    src_ip = request.args.get("src_ip")
+    pb = get_remediation_playbook(canon, src_ip=src_ip)
+    return jsonify({"ok": True, "category": canon, "playbook": pb})
 
 @app.get("/api/model")
 def api_model():
@@ -573,11 +1155,20 @@ def api_model():
             data = json.loads(cj.read_text(encoding="utf-8"))
             meta.update({
                 "classes": data.get("classes"),
-                "benign_index": data.get("benign_index")
+                "benign_index": data.get("benign_index"),
             })
     except Exception:
         pass
-    return jsonify({"ok": True, "model": meta})
+
+    try:
+        mc_path = Path("models/multiclass_classes.json")
+        if mc_path.exists():
+            mc_data = json.loads(mc_path.read_text(encoding="utf-8"))
+            meta["multiclass_classes"] = mc_data.get("classes", [])
+    except Exception:
+        pass
+    meta["taxonomies"] = TAXONOMIES
+    return jsonify({"ok": True, "model": meta, "server_time": now_ts()})
 
 # ============================================================================
 # DEMO SIMULATION CONTROLLER (Start / Stop / Inject)
@@ -858,6 +1449,7 @@ def _validate_config(dec: dict) -> tuple[dict, list[str]]:
 
 
 @app.post("/api/config")
+@require_role([ROLE_ADMIN])
 def api_set_config():
     """
     Update decision parameters with validation.
@@ -897,6 +1489,15 @@ def api_set_config():
 
     cfg.setdefault("decision", {}).update(new_dec)
     save_cfg(cfg)
+
+    if AUDIT_AVAILABLE and record_audit_event is not None:
+        record_audit_event(
+            actor=getattr(g, "current_user", "operator"),
+            action="POLICY_UPDATE",
+            role=getattr(g, "current_role", ROLE_ADMIN),
+            payload=new_dec,
+        )
+
     return jsonify({
         "ok": True,
         "saved": new_dec,
@@ -991,55 +1592,315 @@ def api_health():
 @app.get("/api/topology")
 def api_topology():
     """
-    Return simulated network topology with devices and connections.
-    Used by the canvas-based network visualization in the dashboard.
+    Return comprehensive, live network topology combining:
+      - Device fingerprint classifications (data/device_fingerprints.json)
+      - Window metadata & active IPs (data/window_meta.json)
+      - Active firewall blocks from blocker.py (data/active_blocks.json)
+      - Real-time traffic state (Benign, Grace/Warning, Blocked)
+      - Threat intelligence enrichment (GeoIP, Flag, ISP, Abuse score)
     """
-    # Build a set of device nodes (mix of IoT and IT)
+    # 1. Load Device Fingerprints (IoT vs. IT)
+    fingerprints = {}
+    fp_path = Path("data/device_fingerprints.json")
+    if fp_path.exists():
+        try:
+            fp_data = json.loads(fp_path.read_text(encoding="utf-8")) or {}
+            fingerprints = fp_data.get("cache", {})
+        except Exception:
+            pass
+
+    # 2. Load Window Meta Context
+    win_meta = {}
+    wm_path = Path("data/window_meta.json")
+    if wm_path.exists():
+        try:
+            win_meta = json.loads(wm_path.read_text(encoding="utf-8")) or {}
+        except Exception:
+            pass
+
+    # 3. Load Active Blocks
+    active_blocks = get_active_blocks()
+    blocked_ips = {b["ip"]: b for b in active_blocks}
+
+    # 4. Read recent alerts for traffic states and active source IPs
+    recent_alerts = read_last_n(40)
+    recent_ips = {}
+    for alert in recent_alerts:
+        ip = alert.get("src_ip")
+        if ip and ip not in ("none", "unknown"):
+            if ip not in recent_ips:
+                recent_ips[ip] = {
+                    "last_state": alert.get("state", "BENIGN"),
+                    "last_action": alert.get("action", "NONE"),
+                    "last_score": alert.get("score", 0.0),
+                    "attack_category": alert.get("attack_category"),
+                    "hits": alert.get("hits_in_window", 0),
+                    "pred_class": alert.get("pred_class"),
+                    "count": 1,
+                }
+            else:
+                recent_ips[ip]["count"] += 1
+
+    # Base Core Infrastructure Nodes (fixed positions)
     devices = [
-        {"id": "gw", "label": "Gateway Router", "type": "router", "x": 0.5, "y": 0.15},
-        {"id": "fw", "label": "IoTGuard Firewall", "type": "firewall", "x": 0.5, "y": 0.35},
-        {"id": "cam1", "label": "IP Camera 1", "type": "iot", "x": 0.15, "y": 0.6},
-        {"id": "cam2", "label": "IP Camera 2", "type": "iot", "x": 0.3, "y": 0.7},
-        {"id": "sensor1", "label": "Temp Sensor", "type": "iot", "x": 0.1, "y": 0.85},
-        {"id": "thermo", "label": "Smart Thermostat", "type": "iot", "x": 0.25, "y": 0.9},
-        {"id": "lock", "label": "Smart Lock", "type": "iot", "x": 0.42, "y": 0.8},
-        {"id": "hub", "label": "IoT Hub", "type": "iot", "x": 0.35, "y": 0.55},
-        {"id": "srv", "label": "File Server", "type": "it", "x": 0.7, "y": 0.6},
-        {"id": "ws1", "label": "Workstation", "type": "it", "x": 0.85, "y": 0.7},
-        {"id": "ws2", "label": "Laptop", "type": "it", "x": 0.75, "y": 0.85},
-        {"id": "nas", "label": "NAS Storage", "type": "it", "x": 0.9, "y": 0.55},
+        {"id": "gw", "label": "Edge IoT Gateway", "type": "router", "ip": "192.168.1.1", "state": "BENIGN", "x": 0.5, "y": 0.12},
+        {"id": "fw", "label": "IoTGuard Firewall", "type": "firewall", "ip": "192.168.1.2", "state": "BENIGN", "x": 0.5, "y": 0.28},
+        {"id": "hub", "label": "IoT Smart Hub", "type": "iot", "ip": "192.168.1.10", "state": "BENIGN", "x": 0.3, "y": 0.48},
+        {"id": "srv", "label": "Corporate IT Server", "type": "it", "ip": "192.168.1.20", "state": "BENIGN", "x": 0.7, "y": 0.48},
     ]
-    # Connections (from → to)
+
+    # Pre-defined known inventory / seed devices
+    seed_devices = [
+        {"id": "cam1", "ip": "192.168.1.50", "label": "Smart Camera 1", "type": "iot", "parent": "hub", "x": 0.12, "y": 0.68},
+        {"id": "cam2", "ip": "192.168.1.51", "label": "Smart Camera 2", "type": "iot", "parent": "hub", "x": 0.24, "y": 0.78},
+        {"id": "sensor1", "ip": "192.168.1.52", "label": "Env Sensor", "type": "iot", "parent": "hub", "x": 0.10, "y": 0.90},
+        {"id": "thermo", "ip": "192.168.1.53", "label": "Thermostat", "type": "iot", "parent": "hub", "x": 0.32, "y": 0.88},
+        {"id": "lock", "ip": "192.168.1.54", "label": "Smart Lock", "type": "iot", "parent": "hub", "x": 0.40, "y": 0.72},
+        {"id": "ws1", "ip": "192.168.1.100", "label": "Admin PC", "type": "it", "parent": "srv", "x": 0.62, "y": 0.72},
+        {"id": "ws2", "ip": "192.168.1.101", "label": "Office Laptop", "type": "it", "parent": "srv", "x": 0.76, "y": 0.88},
+        {"id": "nas", "ip": "192.168.1.102", "label": "Backup NAS", "type": "it", "parent": "srv", "x": 0.90, "y": 0.68},
+    ]
+
+    # Also discover any dynamic IPs from recent alerts or window_meta
+    known_ips = {d["ip"]: d for d in seed_devices}
+    for dev in devices:
+        known_ips[dev["ip"]] = dev
+
+    all_dynamic_ips = set(recent_ips.keys()) | set(blocked_ips.keys()) | set(fingerprints.keys())
+    if win_meta.get("top_src_ip"):
+        all_dynamic_ips.add(win_meta.get("top_src_ip"))
+
+    # Add dynamic nodes that aren't in seed devices
+    extra_devices = []
+    slot = 0
+    for dyn_ip in all_dynamic_ips:
+        if dyn_ip not in known_ips and dyn_ip not in ("0.0.0.0", "127.0.0.1", "none", "unknown"):
+            dev_type = fingerprints.get(dyn_ip, "iot")
+            angle = (slot * 0.7) % 6.28
+            slot += 1
+            is_it = (dev_type == "it")
+            base_x = 0.75 if is_it else 0.25
+            base_y = 0.75
+            x = max(0.08, min(0.92, base_x + 0.15 * math.cos(angle)))
+            y = max(0.55, min(0.95, base_y + 0.15 * math.sin(angle)))
+
+            clean_id = f"node_{dyn_ip.replace('.', '_')}"
+            extra_devices.append({
+                "id": clean_id,
+                "ip": dyn_ip,
+                "label": f"{'IT' if is_it else 'IoT'} Node ({dyn_ip})",
+                "type": dev_type,
+                "parent": "srv" if is_it else "hub",
+                "x": round(x, 2),
+                "y": round(y, 2),
+            })
+
+    all_devices = devices + seed_devices + extra_devices
+
+    # Compute State & Threat Intel for every device
+    nodes = []
     connections = [
         {"from": "gw", "to": "fw", "active": True},
         {"from": "fw", "to": "hub", "active": True},
         {"from": "fw", "to": "srv", "active": True},
-        {"from": "hub", "to": "cam1", "active": True},
-        {"from": "hub", "to": "cam2", "active": True},
-        {"from": "hub", "to": "sensor1", "active": True},
-        {"from": "hub", "to": "thermo", "active": True},
-        {"from": "hub", "to": "lock", "active": True},
-        {"from": "srv", "to": "ws1", "active": True},
-        {"from": "srv", "to": "ws2", "active": True},
-        {"from": "srv", "to": "nas", "active": True},
     ]
 
-    # Check recent alerts for active attacks — mark connections as attacked
-    recent = read_last_n(20)
-    attack_count = sum(1 for e in recent if e.get("state") == "ATTACK")
-    if attack_count > 0:
-        # Mark gateway→firewall as under attack
+    attack_active = False
+
+    for d in all_devices:
+        ip = d.get("ip")
+        # Determine status
+        is_blocked = (ip in blocked_ips) or (recent_ips.get(ip, {}).get("last_action", "").startswith("BLOCK"))
+        is_grace = (not is_blocked) and (
+            recent_ips.get(ip, {}).get("last_state") == "ATTACK" or 
+            recent_ips.get(ip, {}).get("hits", 0) > 0
+        )
+
+        if is_blocked:
+            state = "BLOCKED"  # Red Pulsing
+            attack_active = True
+        elif is_grace:
+            state = "GRACE"    # Amber
+            attack_active = True
+        else:
+            state = "BENIGN"   # Green
+
+        d["state"] = state
+        d["blocked"] = is_blocked
+
+        # Enrich with ThreatIntel
+        if THREAT_INTEL and ip:
+            ti = THREAT_INTEL.enrich_ip(ip)
+            d["country"] = ti.get("country", "Unknown")
+            d["country_name"] = ti.get("country_name", "Unknown")
+            d["flag"] = ti.get("flag", "🏳️")
+            d["threat"] = ti.get("threat")
+            d["isp"] = ti.get("isp")
+            d["asn"] = ti.get("asn")
+            d["abuse_score"] = ti.get("abuse_confidence_score", 0)
+        else:
+            d["country"] = "LAN"
+            d["country_name"] = "Private Network"
+            d["flag"] = "🏠"
+            d["threat"] = None
+            d["isp"] = None
+            d["asn"] = None
+            d["abuse_score"] = 0
+
+        if ip in recent_ips:
+            d["last_score"] = recent_ips[ip].get("last_score", 0.0)
+            d["attack_category"] = recent_ips[ip].get("attack_category")
+            d["hits"] = recent_ips[ip].get("hits", 0)
+
+        nodes.append(d)
+
+        parent = d.get("parent")
+        if parent:
+            conn_attack = (state in ("BLOCKED", "GRACE"))
+            connections.append({
+                "from": parent,
+                "to": d["id"],
+                "active": True,
+                "attack": conn_attack,
+                "state": state.lower(),
+            })
+
+    # If attack is active, mark gateway -> firewall as attacked
+    if attack_active:
         connections[0]["attack"] = True
-        # Randomly mark some IoT connections as attacked
-        for c in connections[2:7]:
-            if random.random() < 0.4:
-                c["attack"] = True
+        connections[0]["state"] = "attack"
+
+    # Build summary
+    driver_telemetry = get_driver_telemetry()
+    summary = {
+        "total_nodes": len(nodes),
+        "total_devices": len(nodes),
+        "iot_count": sum(1 for n in nodes if n["type"] == "iot"),
+        "iot_nodes": sum(1 for n in nodes if n["type"] == "iot"),
+        "it_count": sum(1 for n in nodes if n["type"] == "it"),
+        "it_nodes": sum(1 for n in nodes if n["type"] == "it"),
+        "blocked_count": sum(1 for n in nodes if n["state"] == "BLOCKED"),
+        "blocked_nodes": sum(1 for n in nodes if n["state"] == "BLOCKED"),
+        "grace_count": sum(1 for n in nodes if n["state"] == "GRACE"),
+        "grace_nodes": sum(1 for n in nodes if n["state"] == "GRACE"),
+        "benign_count": sum(1 for n in nodes if n["state"] == "BENIGN"),
+        "attack_active": attack_active,
+        "firewall_driver": driver_telemetry.get("active_driver", "auto"),
+        "xdp_drops": driver_telemetry.get("total_xdp_drops", 0),
+    }
 
     return jsonify({
         "ok": True,
-        "devices": devices,
+        "nodes": nodes,
+        "edges": connections,
+        "devices": nodes,
         "connections": connections,
-        "attack_active": attack_count > 0,
+        "summary": summary,
+        "attack_active": attack_active,
+    })
+
+
+@app.post("/api/block")
+@app.post("/api/v1/block")
+@require_role([ROLE_ADMIN, ROLE_SOC_ANALYST])
+def api_block_ip():
+    """Manual quarantine endpoint for dashboard operators."""
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"ok": False, "error": "No IP provided"}), 400
+
+    severity = data.get("severity", "hard")
+    reason = data.get("reason", "Manual Operator Quarantine")
+    dry_run = data.get("dry_run", load_cfg().get("decision", {}).get("dry_run", True))
+
+    ok, msg = block_ip(ip, severity=severity, reason=reason, dry_run=dry_run)
+    if ok:
+        if AUDIT_AVAILABLE and record_audit_event is not None:
+            record_audit_event(
+                actor=getattr(g, "current_user", "operator"),
+                action="MANUAL_BLOCK",
+                role=getattr(g, "current_role", ROLE_SOC_ANALYST),
+                payload={"ip": ip, "severity": severity, "reason": reason, "dry_run": dry_run}
+            )
+
+        if SOCKETIO_AVAILABLE:
+            try:
+                socketio.emit("topology_update", {"action": "block", "ip": ip, "severity": severity})
+            except Exception:
+                pass
+
+        # Phase 10: Fleet-Wide Global Block Broadcast ("Herd Immunity")
+        is_global = bool(data.get("is_global", False)) or str(severity).lower() in ("kill", "global")
+        if is_global and FLEET_AVAILABLE and get_fleet_control_plane is not None:
+            try:
+                cp = get_fleet_control_plane()
+                cp.broadcast_global_block(
+                    ip=ip,
+                    reason=reason,
+                    severity=severity,
+                    source=f"soc:{getattr(g, 'current_user', 'operator')}"
+                )
+            except Exception as e:
+                logger.warning(f"Could not broadcast fleet block: {e}")
+
+        return jsonify({
+            "ok": True,
+            "ip": ip,
+            "severity": severity,
+            "message": msg,
+            "dry_run": dry_run,
+            "fleet_broadcast": is_global,
+        })
+    return jsonify({"ok": False, "error": msg}), 400
+
+
+@app.post("/api/unblock")
+@app.post("/api/v1/unblock")
+@require_role([ROLE_ADMIN, ROLE_SOC_ANALYST])
+def api_unblock_ip():
+    """Manual unblock / restore endpoint for dashboard operators."""
+    data = request.get_json(silent=True) or {}
+    ip = data.get("ip")
+    if not ip:
+        return jsonify({"ok": False, "error": "No IP provided"}), 400
+
+    dry_run = data.get("dry_run", load_cfg().get("decision", {}).get("dry_run", True))
+    ok, msg = unblock_ip(ip, dry_run=dry_run)
+    if ok:
+        if AUDIT_AVAILABLE and record_audit_event is not None:
+            record_audit_event(
+                actor=getattr(g, "current_user", "operator"),
+                action="MANUAL_UNBLOCK",
+                role=getattr(g, "current_role", ROLE_SOC_ANALYST),
+                payload={"ip": ip, "dry_run": dry_run}
+            )
+
+        if SOCKETIO_AVAILABLE:
+            try:
+                socketio.emit("topology_update", {"action": "unblock", "ip": ip})
+            except Exception:
+                pass
+        return jsonify({
+            "ok": True,
+            "ip": ip,
+            "message": msg,
+            "dry_run": dry_run,
+        })
+    return jsonify({"ok": False, "error": msg}), 400
+
+
+@app.get("/api/blocks")
+@app.get("/api/v1/blocks")
+def api_get_blocks():
+    """Return currently active blocked IPs along with active firewall driver telemetry."""
+    driver_telemetry = get_driver_telemetry()
+    return jsonify({
+        "ok": True,
+        "driver": driver_telemetry.get("active_driver", "auto"),
+        "blocks": get_active_blocks(),
+        "driver_telemetry": driver_telemetry,
+        "xdp_total_drops": driver_telemetry.get("total_xdp_drops", 0),
     })
 
 
@@ -1377,12 +2238,21 @@ def api_simulate():
     })
 
 @app.post("/api/clear")
+@require_role([ROLE_ADMIN])
 def api_clear():
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     ALERT_LOG.write_text("", encoding="utf-8")
+    if AUDIT_AVAILABLE and record_audit_event is not None:
+        record_audit_event(
+            actor=getattr(g, "current_user", "operator"),
+            action="LOG_CLEAR",
+            role=getattr(g, "current_role", ROLE_ADMIN),
+            payload={"scope": "alerts"}
+        )
     return jsonify({"ok": True})
 
 @app.post("/api/clear_all")
+@require_role([ROLE_ADMIN])
 def api_clear_all():
     # clear alerts
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -1391,12 +2261,156 @@ def api_clear_all():
     # reset offset state so the decision loop won’t re-score old rows
     (DATA_DIR / "state.json").write_text('{"offset_rows":0,"csv_mtime":0}', encoding="utf-8")
 
-    # (optional) also reset features.csv to header for a fresh run:
-    # (DATA_DIR / "features.csv").write_text(
-    #   "flows,bytes_total,pkts_total,uniq_src,uniq_dst,syn_ratio,mean_bytes_flow\n", encoding="utf-8"
-    # )
+    if AUDIT_AVAILABLE and record_audit_event is not None:
+        record_audit_event(
+            actor=getattr(g, "current_user", "operator"),
+            action="LOG_CLEAR",
+            role=getattr(g, "current_role", ROLE_ADMIN),
+            payload={"scope": "all"}
+        )
 
     return jsonify({"ok": True})
+
+
+# ── Enterprise Audit Ledger & RBAC API Endpoints ─────────────────────────────
+
+@app.get("/api/v1/audit")
+@app.get("/api/audit")
+@require_role([ROLE_ADMIN, ROLE_AUDITOR, ROLE_SOC_ANALYST])
+def api_get_audit():
+    """Retrieve entries from the immutable cryptographic audit ledger."""
+    limit = request.args.get("limit", default=100, type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    trail = []
+    if AUDIT_AVAILABLE and get_audit_ledger is not None:
+        ledger = get_audit_ledger()
+        if ledger is not None:
+            trail = ledger.get_trail(limit=limit, offset=offset)
+    return jsonify({
+        "ok": True,
+        "count": len(trail),
+        "ledger": trail,
+        "entries": trail,
+        "limit": limit,
+        "offset": offset,
+        "server_time": now_ts(),
+    })
+
+
+@app.get("/api/v1/audit/verify")
+@app.get("/api/audit/verify")
+@require_role([ROLE_ADMIN, ROLE_AUDITOR])
+def api_verify_audit():
+    """Cryptographically verify the entire audit ledger hash chain."""
+    if not AUDIT_AVAILABLE or verify_audit_ledger is None:
+        return jsonify({"ok": False, "error": "Audit ledger subsystem not available"}), 503
+
+    ok, status, tampered_idx = verify_audit_ledger()
+    return jsonify({
+        "ok": ok,
+        "status": status,
+        "tampered_block_index": tampered_idx,
+        "verified_at": now_ts(),
+    }), (200 if ok else 409)
+
+
+@app.post("/api/v1/keys")
+@require_role([ROLE_ADMIN])
+def api_create_api_key():
+    """Create a scoped enterprise API key."""
+    if not AUTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Auth subsystem not available"}), 503
+
+    data = request.get_json(silent=True) or {}
+    name = data.get("name", "sensor_key")
+    role = data.get("role", ROLE_SOC_ANALYST)
+    new_key = register_api_key(name=name, role=role)
+
+    if AUDIT_AVAILABLE and record_audit_event is not None:
+        record_audit_event(
+            actor=getattr(g, "current_user", "admin"),
+            action="API_KEY_CREATED",
+            role=getattr(g, "current_role", ROLE_ADMIN),
+            payload={"name": name, "role": role}
+        )
+
+    return jsonify({
+        "ok": True,
+        "api_key": new_key,
+        "name": name,
+        "role": role,
+    })
+
+
+@app.get("/api/v1/keys")
+@require_role([ROLE_ADMIN])
+def api_list_keys():
+    """List active enterprise API keys."""
+    if not AUTH_AVAILABLE:
+        return jsonify({"ok": False, "error": "Auth subsystem not available"}), 503
+    return jsonify({"ok": True, "keys": list_api_keys()})
+
+
+# ── OpenAPI 3.1 & Interactive Swagger UI Endpoints ───────────────────────────
+
+@app.get("/api/openapi.json")
+@app.get("/openapi.json")
+def api_openapi_json():
+    """Return complete OpenAPI 3.1.0 JSON specification."""
+    return jsonify(get_openapi_spec())
+
+
+@app.get("/api/docs")
+@app.get("/docs")
+def api_docs_ui():
+    """Serve interactive Swagger UI documentation for IoTGuard Enterprise APIs."""
+    html = get_swagger_ui_html(openapi_url="/api/openapi.json", title="IoTGuard Enterprise API Documentation")
+    return Response(html, mimetype="text/html")
+
+
+# ── SIEM & Threat Intelligence Export Endpoints ──────────────────────────────
+
+@app.get("/api/v1/export/stix")
+@app.get("/api/export/stix")
+def api_export_stix():
+    """
+    Export active threat indicators as an OASIS STIX 2.1 Threat Sharing Bundle.
+    
+    Includes:
+      - identity: IoTGuard Edge IPS
+      - attack-pattern: MITRE ATT&CK techniques with external references
+      - indicator: Active malicious IPs ([ipv4-addr:value = '...'])
+      - relationship: indicates linking indicators to attack patterns
+      - sighting: edge observation records
+    """
+    recent_events = list(_iter_alerts(limit=50))
+    blocks = {}
+    if BLOCKER_AVAILABLE and get_active_blocks is not None:
+        try:
+            b_list = get_active_blocks()
+            if isinstance(b_list, list):
+                blocks = {b["ip"]: b for b in b_list if isinstance(b, dict) and "ip" in b}
+            elif isinstance(b_list, dict):
+                blocks = b_list
+        except Exception:
+            pass
+
+    bundle = generate_stix_bundle(events=recent_events, active_blocks=blocks)
+    return jsonify(bundle)
+
+
+@app.get("/api/v1/export/cef")
+@app.get("/api/export/cef")
+def api_export_cef():
+    """Export recent security alerts in ArcSight Common Event Format (CEF:0)."""
+    limit = request.args.get("limit", default=100, type=int)
+    events = list(_iter_alerts(limit=limit))
+    cef_lines = [format_cef_event(e) for e in events]
+    return Response(
+        "\n".join(cef_lines) + ("\n" if cef_lines else ""),
+        mimetype="text/plain",
+        headers={"Content-Disposition": "inline; filename=iotguard_alerts.cef"}
+    )
 
 @app.get("/api/download.csv")
 def api_download_csv():

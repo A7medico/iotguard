@@ -34,6 +34,7 @@ data/
 models/*.joblib
 models/*.pkl
 models/*.bin
+models/backup/
 
 # Local configs/secrets
 configs/*.local.yaml

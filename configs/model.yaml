@@ -1,135 +1,77 @@
-# -----------------------------------------------------------------------------
-# IoTGuard Configuration
-#
-# Purpose
-#   - Declare the feature list used by training/inference and the decision
-#     policy parameters consumed by the decision loop and dashboard.
-#
-# Notes
-#   - Training reads this feature order (scripts/train_supervised.py).
-#   - Decision loop hot-reloads values under `decision` at runtime.
-# -----------------------------------------------------------------------------
 features:
-  # Core flow features (5)
-  - flows
-  - bytes_total
-  - pkts_total
-  - syn_ratio
-  - mean_bytes_flow
-  # Flag ratios for attack detection (3)
-  - ack_ratio
-  - fin_ratio
-  - rst_ratio
-  # Protocol features (3)
-  - http_ratio
-  - tcp_ratio
-  - protocol_diversity
-  # Statistical features (2)
-  - std_bytes
-  - iat_mean
-
-# Multi-Model Configuration
+- flows
+- bytes_total
+- pkts_total
+- syn_ratio
+- mean_bytes_flow
+- ack_ratio
+- fin_ratio
+- rst_ratio
+- http_ratio
+- tcp_ratio
+- protocol_diversity
+- std_bytes
+- iat_mean
 models:
   iot:
-    path: "models/lightgbm.joblib"
-    meta: "models/model_meta.json"
-    threshold: 0.90
+    path: models/lightgbm.joblib
+    meta: models/model_meta.json
+    threshold: 0.9
   it:
-    path: "models/lightgbm_it.joblib"
-    meta: "models/model_meta_it.json"
-    threshold: 0.90
-
+    path: models/lightgbm_it.joblib
+    meta: models/model_meta_it.json
+    threshold: 0.9
 lgbm:
   n_estimators: 250
   num_leaves: 64
   learning_rate: 0.05
   subsample: 0.8
   colsample_bytree: 0.8
-  
 decision:
-  # Runtime decision threshold for P(attack).
-  # Based on holdout results:
-  #   - ~0.30 → high recall but ~26% FPR (too noisy)
-  #   - ~0.70 → ~91% recall, ~3% FPR
-  #   - ~0.90 → ~88% recall, ~0.3% FPR, ~99.8% precision
-  # Default to a conservative value that greatly reduces false positives.
-  threshold: 0.90
-  grace: 2
+  threshold: 0.65
+  grace: 3
   window: 5
-  cooldown_sec: 5
+  cooldown_sec: 30
   instant_block: 0.95
-
-  # set to false to actually block
   dry_run: true
-
-  # Blocking is handled by scripts/blocker.py (supports Windows netsh, Linux nftables/iptables)
-
-# -----------------------------------------------------------------------------
-# Unsupervised / Hybrid Mode Configuration
-# -----------------------------------------------------------------------------
+  firewall_backend: auto
+  xdp_interface: eth0
+  xdp_mode: auto
+  use_adaptive: false
 unsupervised:
-  # Enable unsupervised anomaly detection (IsolationForest)
   enabled: true
-  
-  # Model paths (relative to project root)
   model_path: models/unsup_isoforest.joblib
   meta_path: models/unsup_meta.json
-  
-  # Training parameters (used by train_unsupervised.py)
-  train_on: benign_only      # benign_only (recommended) or all
-  contamination: 0.05        # expected anomaly ratio in training data
-  n_estimators: 200          # number of trees
-  max_samples: 1.0           # fraction of samples per tree
+  train_on: benign_only
+  contamination: 0.05
+  n_estimators: 200
+  max_samples: 1.0
   random_state: 42
-  fallback_quantile: 0.99    # threshold quantile when no labels
-
-# -----------------------------------------------------------------------------
-# Hybrid Detection Mode
-# -----------------------------------------------------------------------------
+  fallback_quantile: 0.99
 hybrid:
-  # Mode: "supervised", "unsupervised", or "hybrid"
-  # - supervised: only use LightGBM (current behavior)
-  # - unsupervised: only use IsolationForest anomaly scores
-  # - hybrid: use both; flag if EITHER detects an issue
   mode: hybrid
-  
-  # Unsupervised-only threshold (used when mode is "unsupervised" or "hybrid")
-  # This is the anomaly score threshold; loaded from unsup_meta.json if not set
   unsup_threshold: null
-  
-  # In hybrid mode, how to combine scores:
-  # - "or": flag if supervised OR unsupervised detects (more sensitive)
-  # - "and": flag only if BOTH detect (more conservative)
-  # - "weighted": combine scores with weights below
   combine_strategy: or
-  
-  # Weights for "weighted" strategy (must sum to 1.0)
   supervised_weight: 0.7
   unsupervised_weight: 0.3
-  
-  # Label for unsupervised-only detections (when supervised says benign)
-  unsup_only_label: "ANOMALY (unsupervised)"
-
-# -----------------------------------------------------------------------------
-# Ensemble Configuration (for scripts/ensemble.py)
-# -----------------------------------------------------------------------------
+  unsup_only_label: ANOMALY (unsupervised)
 ensemble:
-  # Strategy: "weighted", "or", "and", "max"
   strategy: weighted
   supervised_weight: 0.7
   unsupervised_weight: 0.3
-  # Apply probability calibration
   calibrate: true
-
-# -----------------------------------------------------------------------------
-# Alert Configuration (for scripts/alerts.py)
-# Configure via environment variables:
-#   IOTGUARD_SMTP_HOST, IOTGUARD_SMTP_PORT, IOTGUARD_SMTP_USER,
-#   IOTGUARD_SMTP_PASS, IOTGUARD_SMTP_TO, IOTGUARD_SLACK_WEBHOOK
-# -----------------------------------------------------------------------------
+temporal:
+  enabled: true
+  window_size: 8
+  min_windows: 4
+  drift_threshold: 0.5
+  boost_weight: 0.25
+  features:
+  - rst_ratio
+  - syn_ratio
+  - flows
+  - http_ratio
 alerts:
-  # Minimum severity to trigger alerts: low, medium, high, critical
   min_severity: medium
-  # Enable/disable channels (actual config via env vars)
   email_enabled: false
   slack_enabled: false

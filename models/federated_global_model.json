@@ -1,0 +1,41 @@
+{
+  "round": 1,
+  "model_hash": "351766a9269c8b37",
+  "features": [
+    "flows",
+    "bytes_total",
+    "pkts_total",
+    "syn_ratio",
+    "mean_bytes_flow",
+    "ack_ratio",
+    "fin_ratio",
+    "rst_ratio",
+    "http_ratio",
+    "tcp_ratio",
+    "protocol_diversity",
+    "std_bytes",
+    "iat_mean"
+  ],
+  "weights": [
+    -0.012078413635033737,
+    0.08661550599862043,
+    0.0651632012068569,
+    0.02322951940980175,
+    -0.048027273542996296,
+    -0.0665641788121183,
+    -0.06013491619289866,
+    0.05379807053312127,
+    0.0009205638300037629,
+    -0.0018051061572695315,
+    -0.08763032324096878,
+    0.09255573451631302,
+    0.07168910568626767
+  ],
+  "bias": -0.5045808723034511,
+  "last_round_time": 1793893624.4998624,
+  "privacy": {
+    "differential_privacy": true,
+    "clip_norm": 1.0,
+    "noise_multiplier": 0.05
+  }
+}

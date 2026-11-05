@@ -410,6 +410,27 @@ last_detection_timestamp = Gauge(
 )
 
 # ---------------------------------------------------------------------------
+# FIREWALL & EBPF / XDP METRICS (Phase 4)
+# Track in-kernel packet filtering and driver subsystem
+# ---------------------------------------------------------------------------
+firewall_driver_info = Gauge(
+    "iotguard_firewall_driver_info",
+    "Active firewall driver mode (value=1)",
+    labels=("driver", "os")
+)
+
+xdp_packet_drops_total = Counter(
+    "iotguard_xdp_packet_drops_total",
+    "Total packets dropped by eBPF/XDP driver hook at NIC layer",
+    labels=("interface",)
+)
+
+xdp_active_blocked_ips = Gauge(
+    "iotguard_xdp_active_blocked_ips",
+    "Number of active IPs loaded in eBPF/XDP hash map"
+)
+
+# ---------------------------------------------------------------------------
 # INFO METRIC
 # Static information about the service
 # ---------------------------------------------------------------------------
@@ -459,6 +480,33 @@ def record_block(success: bool = True) -> None:
         success: Whether the block succeeded
     """
     blocks_total.inc(success=str(success).lower())
+
+
+def record_xdp_drops(count: int = 1, interface: str = "eth0") -> None:
+    """
+    Record in-kernel packet drops executed by eBPF/XDP at the NIC driver layer.
+
+    Args:
+        count: Number of dropped packets to add
+        interface: Network interface where XDP filter is attached
+    """
+    xdp_packet_drops_total.inc(value=count, interface=interface)
+
+
+def update_firewall_telemetry(
+    driver: str,
+    blocked_ips_count: int,
+    os_name: str = "linux",
+    xdp_drops: int = 0,
+    interface: str = "eth0",
+) -> None:
+    """
+    Update active firewall driver mode and XDP blocked IP metrics.
+    """
+    firewall_driver_info.set(1, driver=driver, os=os_name)
+    xdp_active_blocked_ips.set(blocked_ips_count)
+    if xdp_drops > 0:
+        xdp_packet_drops_total.inc(value=xdp_drops, interface=interface)
 
 
 def record_score(score: float, model_type: str = "supervised") -> None:
@@ -574,6 +622,9 @@ def get_metrics_text() -> str:
     metrics = [
         detections_total,
         blocks_total,
+        firewall_driver_info,
+        xdp_packet_drops_total,
+        xdp_active_blocked_ips,
         inference_seconds,
         score_distribution,
         api_requests_total,
@@ -624,7 +675,12 @@ def get_metrics_json() -> Dict[str, Any]:
             )
         },
         "last_detection": last_detection_timestamp.get(),
-        "active_connections": active_connections.get()
+        "active_connections": active_connections.get(),
+        "firewall": {
+            "driver": list(firewall_driver_info._values.keys())[0][0] if firewall_driver_info._values else "auto",
+            "xdp_blocked_ips": xdp_active_blocked_ips.get(),
+            "xdp_total_drops": sum(xdp_packet_drops_total._values.values()),
+        }
     }
 
 

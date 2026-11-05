@@ -15,10 +15,12 @@
     "std_bytes",
     "iat_mean"
   ],
-  "threshold": 0.5343303042470113,
+  "threshold": 0.46318977988709686,
   "contamination": 0.05,
   "train_on": "benign_only",
-  "csv_path": "data/iotguard_training_clean.csv",
+  "csv_path": "data\\iotguard_training_merged.csv",
   "score_higher_is_anomalous": true,
-  "fallback_quantile": 0.99
+  "fallback_quantile": 0.99,
+  "max_samples": 256,
+  "model_version": "3.0.0"
 }

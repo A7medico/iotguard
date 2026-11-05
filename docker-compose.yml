@@ -36,7 +36,6 @@ services:
   dashboard:
     build: .
     container_name: iotguard-dashboard
-    privileged: true  # Required for raw sockets in the Attack Simulator
     command: python scripts/5_dashboard/api_dashboard.py
     ports:
       - "5001:5001"

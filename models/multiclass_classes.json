@@ -1,0 +1,22 @@
+{
+  "classes": [
+    "backdoor",
+    "benign",
+    "bruteforce",
+    "data_exfil",
+    "ddos_http",
+    "ddos_udp",
+    "http_exploit",
+    "mitm",
+    "os_fingerprint",
+    "port_scan",
+    "ransomware",
+    "sql_injection",
+    "syn_flood",
+    "udp_flood",
+    "upload_attack",
+    "vulnerability_scan",
+    "xss"
+  ],
+  "benign_index": 1
+}

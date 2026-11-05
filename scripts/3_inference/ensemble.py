@@ -216,7 +216,28 @@ class EnsemblePredictor:
         
         # Whether to apply probability calibration
         self.calibrate = cfg.get("calibrate", True)
-        
+
+        # ---------------------------------------------------------------
+        # Temporal Sequence Anomaly Detector (Phase 2 Upgrade)
+        # ---------------------------------------------------------------
+        temporal_cfg = cfg.get("temporal", {}) or full_cfg.get("temporal", {})
+        self.temporal_enabled = bool(temporal_cfg.get("enabled", True))
+        self.temporal_boost_weight = float(temporal_cfg.get("boost_weight", 0.25))
+        self.temporal_detector = None
+
+        if self.temporal_enabled:
+            try:
+                from temporal_detector import TemporalDetector
+                self.temporal_detector = TemporalDetector(
+                    window_size=temporal_cfg.get("window_size", 8),
+                    min_windows=temporal_cfg.get("min_windows", 4),
+                    drift_threshold=temporal_cfg.get("drift_threshold", 0.50),
+                    boost_weight=self.temporal_boost_weight,
+                    tracked_features=temporal_cfg.get("features", None),
+                )
+            except Exception as e:
+                logger.warning(f"Could not initialize TemporalDetector: {e}")
+
         # ---------------------------------------------------------------
         # Load both models
         # ---------------------------------------------------------------
@@ -308,7 +329,16 @@ class EnsemblePredictor:
             return np.full(len(X), 0.5)
         
         try:
-            proba = self.supervised_model.predict_proba(X)
+            features = self.features
+            if not features and hasattr(self.supervised_model, "feature_name_"):
+                features = list(self.supervised_model.feature_name_)
+
+            if isinstance(X, np.ndarray) and features and len(features) == X.shape[1]:
+                import pandas as pd
+                X_df = pd.DataFrame(X, columns=features)
+                proba = self.supervised_model.predict_proba(X_df)
+            else:
+                proba = self.supervised_model.predict_proba(X)
             return proba[:, 1]  # Column 1 = P(attack)
         except Exception as e:
             logger.error(f"Supervised prediction failed: {e}")
@@ -430,7 +460,7 @@ class EnsemblePredictor:
         confidence = (agreement * 0.4 + extremity * 0.6)
         return float(np.clip(confidence, 0, 1))
     
-    def predict_single(self, X: np.ndarray) -> Dict[str, Any]:
+    def predict_single(self, X: np.ndarray, ip: Optional[str] = None) -> Dict[str, Any]:
         """
         Make ensemble prediction for a single sample.
         
@@ -462,7 +492,33 @@ class EnsemblePredictor:
                 print(f"Attack detected! Score: {result['score']:.2%}")
                 print(f"Confidence: {result['confidence']:.2%}")
         """
-        X = np.atleast_2d(X)
+        raw_input = X
+        canon_features = self.features or [
+            "flows", "bytes_total", "pkts_total", "syn_ratio", "mean_bytes_flow",
+            "ack_ratio", "fin_ratio", "rst_ratio",
+            "http_ratio", "tcp_ratio", "protocol_diversity",
+            "std_bytes", "iat_mean",
+        ]
+
+        if isinstance(X, dict):
+            arr = [float(X.get(f, 0.0)) for f in canon_features]
+            X = np.array([arr], dtype=float)
+        elif isinstance(X, (pd.Series if "pd" in locals() else type(None))):
+            arr = [float(X.get(f, 0.0)) for f in canon_features]
+            X = np.array([arr], dtype=float)
+        else:
+            try:
+                import pandas as _pd
+                if isinstance(X, _pd.Series):
+                    arr = [float(X.get(f, 0.0)) for f in canon_features]
+                    X = np.array([arr], dtype=float)
+                elif isinstance(X, _pd.DataFrame):
+                    cols = [c for c in canon_features if c in X.columns]
+                    X = X[cols].values.astype(float) if len(cols) == len(canon_features) else X.values.astype(float)
+                else:
+                    X = np.atleast_2d(np.asarray(X, dtype=float))
+            except Exception:
+                X = np.atleast_2d(np.asarray(X, dtype=float))
         
         # ---------------------------------------------------------------
         # Get scores from both models
@@ -508,24 +564,51 @@ class EnsemblePredictor:
         )
         # Apply same calibration to threshold so scales match
         threshold = self._calibrate_score(raw_threshold) if self.calibrate else raw_threshold
+
+        # ---------------------------------------------------------------
+        # Temporal Sequence Anomaly Boost (Phase 2 Upgrade)
+        # ---------------------------------------------------------------
+        temporal_score = 0.0
+        temporal_boost = 0.0
+        drifting_feats = []
+        is_temporal_anomaly = False
+
+        if getattr(self, "temporal_detector", None) is not None and getattr(self, "temporal_enabled", True):
+            try:
+                temp_input = raw_input if isinstance(raw_input, dict) else X[0]
+                temp_res = self.temporal_detector.update(temp_input, ip=ip)
+                temporal_score = temp_res.temporal_score
+                temporal_boost = temp_res.boost
+                drifting_feats = temp_res.drifting_features
+                is_temporal_anomaly = temp_res.is_temporal_anomaly
+            except Exception as e:
+                logger.warning(f"Temporal evaluation error: {e}")
+
+        # Boost calibrated combined score with temporal anomaly score
+        boosted_score = min(1.0, calibrated + temporal_boost)
+        is_attack = bool((boosted_score >= threshold) or (self.strategy == "or" and is_temporal_anomaly))
         
         # ---------------------------------------------------------------
         # Build result
         # ---------------------------------------------------------------
         return {
-            "score": round(calibrated, 4),
-            "is_attack": calibrated >= threshold,
+            "score": round(boosted_score, 4),
+            "raw_score": round(calibrated, 4),
+            "is_attack": is_attack,
             "threshold": round(threshold, 4),
             "confidence": round(
-                self._compute_confidence(sup_score, unsup_score, calibrated), 
+                self._compute_confidence(sup_score, unsup_score, boosted_score), 
                 4
             ),
             "supervised_score": round(sup_score, 4),
             "unsupervised_score": round(unsup_score, 4),
+            "temporal_score": round(temporal_score, 4),
+            "temporal_boost": round(temporal_boost, 4),
+            "drifting_features": drifting_feats,
             "strategy": self.strategy
         }
     
-    def predict(self, X: np.ndarray) -> Dict[str, Any]:
+    def predict(self, X: np.ndarray, ip: Optional[str] = None) -> Dict[str, Any]:
         """
         Make ensemble prediction.
         
@@ -533,11 +616,12 @@ class EnsemblePredictor:
         
         Args:
             X: Feature array
+            ip: Optional source IP for temporal tracking
             
         Returns:
             Prediction dictionary
         """
-        return self.predict_single(X)
+        return self.predict_single(X, ip=ip)
     
     def predict_batch(self, X: np.ndarray) -> list:
         """
@@ -633,6 +717,13 @@ class EnsemblePredictor:
         lines.append(f"   Confidence: {result['confidence']:.2%}")
         
         # Add interpretation
+        if result.get("drifting_features"):
+            feats_str = ", ".join(result["drifting_features"])
+            boost_val = result.get("temporal_boost", 0.0)
+            lines.append(f"   ⏱️ Temporal drift: {feats_str} (+{boost_val:.1%} risk boost)")
+        elif result.get("temporal_score", 0.0) > 0.5:
+            lines.append(f"   ⏱️ Temporal sequence anomaly (score: {result['temporal_score']:.2%})")
+
         if result["supervised_score"] > 0.7 and result["unsupervised_score"] > 0.7:
             lines.append("   ⚠️ Both models strongly agree on threat")
         elif result["supervised_score"] > 0.7:

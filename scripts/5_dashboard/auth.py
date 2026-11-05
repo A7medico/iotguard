@@ -65,22 +65,40 @@ SECURITY NOTES:
 """
 
 import os
+import time
 import secrets
 import hashlib
+import hmac
+import base64
+import json
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 from functools import wraps
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, Union, List
 
 from flask import request, jsonify, g
 
+def _b64url_encode(data: bytes) -> str:
+    """Encode bytes to base64url string without padding."""
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+def _b64url_decode(data: str) -> bytes:
+    """Decode base64url string with padding tolerance."""
+    rem = len(data) % 4
+    if rem > 0:
+        data += "=" * (4 - rem)
+    return base64.urlsafe_b64decode(data.encode("ascii"))
+
 # ============================================================================
 # OPTIONAL DEPENDENCY: PyJWT
-# If not installed, JWT features will be disabled but basic auth still works
-# Install with: pip install PyJWT
+# If not installed, zero-dependency HMAC-SHA256 JWT engine is used.
 # ============================================================================
 try:
     import jwt
+    JWT_AVAILABLE = True
+except ImportError:
+    JWT_AVAILABLE = False
     JWT_AVAILABLE = True
 except ImportError:
     JWT_AVAILABLE = False
@@ -131,6 +149,81 @@ JWT_EXPIRY_HOURS = int(os.getenv("IOTGUARD_JWT_EXPIRY", "24"))
 # Login Credentials from environment
 AUTH_USER = os.getenv("IOTGUARD_USER", "admin")  # Default username
 AUTH_PASS = os.getenv("IOTGUARD_PASS", "")       # No default password!
+
+# Enterprise Roles
+ROLE_ADMIN = "ADMIN"
+ROLE_SOC_ANALYST = "SOC_ANALYST"
+ROLE_AUDITOR = "AUDITOR"
+ROLE_EDGE_SENSOR = "EDGE_SENSOR"
+ALL_ROLES = {ROLE_ADMIN, ROLE_SOC_ANALYST, ROLE_AUDITOR, ROLE_EDGE_SENSOR}
+
+# API Keys In-Memory Store
+_API_KEYS: Dict[str, Dict[str, Any]] = {}
+_api_keys_lock = threading.Lock()
+
+# Auto-register default admin key if set via environment
+_env_key = os.getenv("IOTGUARD_API_KEY", "")
+if _env_key:
+    _API_KEYS[_env_key] = {
+        "name": "env_admin",
+        "role": ROLE_ADMIN,
+        "created_at": time.time(),
+    }
+
+
+def register_api_key(
+    name: str,
+    role: str = ROLE_SOC_ANALYST,
+    key: Optional[str] = None,
+    created_by: str = "admin",
+    rate_limit: Optional[int] = None,
+    **kwargs,
+) -> str:
+    """Register an enterprise API key with scoped role privileges."""
+    role_clean = str(role).upper()
+    if role_clean not in ALL_ROLES:
+        role_clean = ROLE_SOC_ANALYST
+    with _api_keys_lock:
+        actual_key = key or f"iotguard_{secrets.token_hex(24)}"
+        _API_KEYS[actual_key] = {
+            "name": name,
+            "role": role_clean,
+            "created_by": created_by,
+            "rate_limit": rate_limit,
+            "created_at": time.time(),
+        }
+        return actual_key
+
+
+def validate_api_key(key: str) -> Optional[Dict[str, Any]]:
+    """Validate an API key and return metadata if active."""
+    if not key:
+        return None
+    with _api_keys_lock:
+        return _API_KEYS.get(key)
+
+
+def list_api_keys() -> List[Dict[str, Any]]:
+    """List active registered API keys."""
+    with _api_keys_lock:
+        return [
+            {
+                "name": v["name"],
+                "role": v["role"],
+                "created_at": v["created_at"],
+                "key_prefix": k[:8] + "...",
+            }
+            for k, v in _API_KEYS.items()
+        ]
+
+
+def revoke_api_key(key: str) -> bool:
+    """Revoke an API key."""
+    with _api_keys_lock:
+        if key in _API_KEYS:
+            del _API_KEYS[key]
+            return True
+        return False
 
 
 # ============================================================================
@@ -196,94 +289,89 @@ def verify_password(password: str, expected: str) -> bool:
 # Create, validate, and refresh JSON Web Tokens
 # ============================================================================
 
-def create_token(username: str, extra_claims: Optional[Dict] = None) -> str:
+def create_token(
+    username: str,
+    role: Union[str, Dict] = ROLE_ADMIN,
+    extra_claims: Optional[Dict] = None
+) -> str:
     """
-    Create a JWT token for an authenticated user.
-    
-    TOKEN STRUCTURE:
-        Header:  {"alg": "HS256", "typ": "JWT"}
-        Payload: {
-            "sub": "username",        # Subject (who the token is for)
-            "iat": 1234567890,        # Issued at (timestamp)
-            "exp": 1234567890,        # Expires at (timestamp)
-            "iss": "iotguard"         # Issuer
-        }
-        Signature: HMAC-SHA256(header + payload, secret)
-    
-    Args:
-        username: The authenticated user's name
-        extra_claims: Optional dict of additional claims
-        
-    Returns:
-        Encoded JWT token string
-        
-    Raises:
-        RuntimeError: If PyJWT is not installed
-        
-    EXAMPLE:
-        token = create_token("admin")
-        # Returns: "eyJhbGciOiJIUzI1NiI..."
+    Create a JWT token for an authenticated user with enterprise role scope.
     """
-    if not JWT_AVAILABLE:
-        raise RuntimeError("PyJWT not installed. Run: pip install PyJWT")
-    
+    # Backward compatibility if extra_claims was passed as 2nd positional argument
+    if isinstance(role, dict):
+        extra_claims = role
+        role = ROLE_ADMIN
+        
+    role_clean = str(role).upper()
+    if role_clean not in ALL_ROLES:
+        role_clean = ROLE_ADMIN
+
     now = datetime.now(timezone.utc)
     
-    # Standard JWT claims
+    # Standard JWT claims with role
     payload = {
-        "sub": username,                                    # Subject
-        "iat": now,                                         # Issued at
-        "exp": now + timedelta(hours=JWT_EXPIRY_HOURS),    # Expiration
-        "iss": "iotguard"                                   # Issuer
+        "sub": username,
+        "role": role_clean,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=JWT_EXPIRY_HOURS)).timestamp()),
+        "iss": "iotguard"
     }
     
     # Add any custom claims
     if extra_claims:
         payload.update(extra_claims)
+
+    if JWT_AVAILABLE:
+        return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
     
-    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALGORITHM)
+    # Built-in zero-dependency fallback (HMAC-SHA256)
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_b64 = _b64url_encode(json.dumps(header, separators=(',', ':')).encode('utf-8'))
+    payload_b64 = _b64url_encode(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
+    signing_input = f"{header_b64}.{payload_b64}".encode('utf-8')
+    sig = hmac.new(JWT_SECRET.encode('utf-8'), signing_input, hashlib.sha256).digest()
+    sig_b64 = _b64url_encode(sig)
+    return f"{header_b64}.{payload_b64}.{sig_b64}"
 
 
 def validate_token(token: str) -> Tuple[bool, Optional[Dict], Optional[str]]:
     """
     Validate a JWT token.
-    
-    CHECKS PERFORMED:
-        1. Signature is valid (not tampered)
-        2. Token is not expired
-        3. Token structure is correct
-    
-    Args:
-        token: The JWT token string to validate
-        
-    Returns:
-        Tuple of (is_valid, payload_dict, error_message)
-        
-    EXAMPLES:
-        # Valid token
-        valid, payload, err = validate_token(good_token)
-        # valid=True, payload={"sub": "admin", ...}, err=None
-        
-        # Expired token
-        valid, payload, err = validate_token(old_token)
-        # valid=False, payload=None, err="Token has expired"
-        
-        # Tampered token
-        valid, payload, err = validate_token(bad_token)
-        # valid=False, payload=None, err="Invalid token: ..."
     """
-    if not JWT_AVAILABLE:
-        return False, None, "PyJWT not installed"
-    
+    if JWT_AVAILABLE:
+        try:
+            # Decode and validate in one step
+            payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+            if "role" not in payload:
+                payload["role"] = ROLE_ADMIN
+            return True, payload, None
+            
+        except jwt.ExpiredSignatureError:
+            return False, None, "Token has expired"
+            
+        except jwt.InvalidTokenError as e:
+            return False, None, f"Invalid token: {e}"
+
+    # Built-in zero-dependency fallback (HMAC-SHA256)
     try:
-        # Decode and validate in one step
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        parts = token.split(".")
+        if len(parts) != 3:
+            return False, None, "Invalid token format"
+        header_b64, payload_b64, sig_b64 = parts
+        signing_input = f"{header_b64}.{payload_b64}".encode("utf-8")
+        expected_sig = _b64url_encode(hmac.new(JWT_SECRET.encode("utf-8"), signing_input, hashlib.sha256).digest())
+        if not hmac.compare_digest(sig_b64, expected_sig):
+            return False, None, "Invalid token signature"
+        
+        payload = json.loads(_b64url_decode(payload_b64).decode("utf-8"))
+        if "exp" in payload:
+            exp_ts = payload["exp"]
+            if isinstance(exp_ts, (int, float)) and time.time() > exp_ts:
+                return False, None, "Token has expired"
+        if "role" not in payload:
+            payload["role"] = ROLE_ADMIN
         return True, payload, None
-        
-    except jwt.ExpiredSignatureError:
-        return False, None, "Token has expired"
-        
-    except jwt.InvalidTokenError as e:
+    except Exception as e:
         return False, None, f"Invalid token: {e}"
 
 
@@ -323,6 +411,11 @@ def refresh_token(token: str) -> Optional[str]:
 # Extract tokens from HTTP requests
 # ============================================================================
 
+def get_api_key_from_request() -> Optional[str]:
+    """Extract API key from X-IoTGuard-API-Key or X-API-Key header."""
+    return request.headers.get("X-IoTGuard-API-Key") or request.headers.get("X-API-Key")
+
+
 def get_token_from_request() -> Optional[str]:
     """
     Extract JWT token from current Flask request.
@@ -353,51 +446,106 @@ def get_token_from_request() -> Optional[str]:
 
 def require_auth(f):
     """
-    Flask decorator to require JWT authentication.
-    
-    USAGE:
-        @app.route("/api/v1/secret")
-        @require_auth
-        def secret_data():
-            # g.current_user is set automatically
-            return {"message": f"Hello, {g.current_user}!"}
-    
-    BEHAVIOR:
-        - If no password configured (IOTGUARD_PASS=""), auth is skipped
-          (development mode)
-        - If token missing, returns 401 with {"error": "Missing..."}
-        - If token invalid/expired, returns 401 with error details
-        - If token valid, sets g.current_user and continues
-    
-    Args:
-        f: The Flask view function to protect
-        
-    Returns:
-        Decorated function
+    Flask decorator to require authentication (JWT or API Key).
+    Sets g.current_user and g.current_role.
     """
-    @wraps(f)  # Preserve function metadata
+    @wraps(f)
     def decorated(*args, **kwargs):
-        # Skip auth if no password configured (dev mode)
-        if not AUTH_PASS:
+        # 1. Check API Key header
+        api_key = get_api_key_from_request()
+        if api_key:
+            key_info = validate_api_key(api_key)
+            if key_info:
+                g.current_user = key_info["name"]
+                g.current_role = key_info["role"]
+                g.auth_type = "api_key"
+                return f(*args, **kwargs)
+            return jsonify({"error": "Invalid API Key"}), 401
+
+        # 2. Skip auth if no password configured (dev/test mode)
+        if not AUTH_PASS and not get_token_from_request():
             g.current_user = "anonymous"
+            g.current_role = ROLE_ADMIN
+            g.auth_type = "anonymous"
             return f(*args, **kwargs)
         
-        # Get token from request
+        # 3. Validate JWT token
         token = get_token_from_request()
-        
         if not token:
-            return jsonify({"error": "Missing authentication token"}), 401
+            return jsonify({"error": "Missing authentication credentials"}), 401
         
-        # Validate token
         valid, payload, error = validate_token(token)
-        
         if not valid:
             return jsonify({"error": error}), 401
         
-        # Set current user for the request context
         g.current_user = payload.get("sub", "unknown")
-        
+        g.current_role = payload.get("role", ROLE_ADMIN)
+        g.auth_type = "jwt"
         return f(*args, **kwargs)
+    
+    return decorated
+
+
+def require_role(allowed_roles: Union[str, List[str], set, Tuple[str, ...]]):
+    """
+    Flask decorator to enforce enterprise Role-Based Access Control (RBAC).
+    Supported roles: ADMIN, SOC_ANALYST, AUDITOR, EDGE_SENSOR.
+    """
+    if isinstance(allowed_roles, str):
+        roles_set = {allowed_roles.upper()}
+    else:
+        roles_set = {str(r).upper() for r in allowed_roles}
+
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            # 1. Check API Key
+            api_key = get_api_key_from_request()
+            if api_key:
+                key_info = validate_api_key(api_key)
+                if not key_info:
+                    return jsonify({"error": "Invalid API Key"}), 401
+                g.current_user = key_info["name"]
+                g.current_role = key_info["role"]
+                g.auth_type = "api_key"
+                if g.current_role not in roles_set:
+                    return jsonify({
+                        "error": "Forbidden: Insufficient privileges",
+                        "required_roles": sorted(list(roles_set)),
+                        "user_role": g.current_role,
+                    }), 403
+                return f(*args, **kwargs)
+
+            # 2. Dev mode: skip if no password configured AND no token provided
+            if not AUTH_PASS and not get_token_from_request():
+                g.current_user = "anonymous"
+                g.current_role = ROLE_ADMIN
+                g.auth_type = "anonymous"
+                return f(*args, **kwargs)
+
+            # 3. Validate JWT Token
+            token = get_token_from_request()
+            if not token:
+                return jsonify({"error": "Missing authentication credentials"}), 401
+
+            valid, payload, error = validate_token(token)
+            if not valid:
+                return jsonify({"error": error}), 401
+
+            g.current_user = payload.get("sub", "unknown")
+            g.current_role = payload.get("role", ROLE_ADMIN)
+            g.auth_type = "jwt"
+
+            if g.current_role not in roles_set:
+                return jsonify({
+                    "error": "Forbidden: Insufficient privileges",
+                    "required_roles": sorted(list(roles_set)),
+                    "user_role": g.current_role,
+                }), 403
+
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
     
     return decorated
 

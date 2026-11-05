@@ -1,5 +1,5 @@
 {
-  "threshold": 0.8320675492286682,
+  "threshold": 0.65,
   "features": [
     "flows",
     "bytes_total",
@@ -17,21 +17,25 @@
   ],
   "label_positive": 1,
   "label_negative": 0,
-  "csv_path": "data/iotguard_training_clean.csv",
-  "model_version": "2.0.0",
-  "trained_at": "2026-08-25T21:22:40.682741+00:00",
+  "csv_path": "data\\iotguard_training_merged.csv",
+  "model_version": "3.0.0",
+  "trained_at": "2026-09-21T13:07:13.980923+00:00",
   "model_type": "LightGBM + Platt Calibration (5-Fold CV)",
-  "roc_auc": 0.9656,
-  "pr_auc": 0.9553,
-  "brier_score": 0.0338,
-  "train_samples": 70000,
+  "roc_auc": 0.9688,
+  "pr_auc": 0.9667,
+  "brier_score": 0.0321,
+  "train_samples": 74435,
   "n_splits": 5,
+  "data_sources": [
+    "IoTGuard synthetic (70K)",
+    "Edge-IIoTset real-world IoT/IIoT (converted)"
+  ],
   "regularization": {
-    "max_depth": 5,
-    "num_leaves": 16,
-    "reg_alpha": 2.0,
-    "reg_lambda": 5.0,
-    "min_child_samples": 80
+    "max_depth": 6,
+    "num_leaves": 31,
+    "reg_alpha": 1.5,
+    "reg_lambda": 4.0,
+    "min_child_samples": 60
   },
-  "description": "IoTGuard calibrated IOT classifier for intrusion detection"
+  "description": "IoTGuard v3.0 calibrated classifier \u2014 trained on merged synthetic + real-world Edge-IIoTset IoT data"
 }

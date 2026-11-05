@@ -17,15 +17,105 @@
 <!-- TOAST NOTIFICATIONS -->
 <div class="toast-container" id="toast_container"></div>
 
-<!-- SHAP DETAIL MODAL -->
+<!-- REMEDIATION PLAYBOOK & SHAP XAI MODAL -->
 <div class="modal-overlay" id="shap_modal">
-  <div class="modal" style="position:relative">
+  <div class="modal" style="position:relative;max-width:700px;width:92%;max-height:90vh;overflow-y:auto">
     <button class="modal-close" onclick="closeShapModal()">&times;</button>
-    <h3 id="shap_title">🔍 SHAP Feature Contributions</h3>
-    <div style="font-size:12px;color:var(--text3);margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <h3 id="shap_title" style="margin:0">🛡️ Remediation Playbook & SHAP XAI</h3>
+      <span id="modal_cat_badge" style="display:none"></span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
       <span id="shap_meta"></span>
     </div>
+
+    <!-- Structured Playbook Card -->
+    <div id="playbook_card" style="display:none;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:700;font-size:13px;color:#f87171;display:flex;align-items:center;gap:6px">
+          <span>📋</span> <span id="pb_title">Automated Remediation Playbook</span>
+        </div>
+        <span id="pb_severity" class="tag t-bad" style="font-size:10px;font-weight:700">CRITICAL</span>
+      </div>
+      
+      <div style="margin-bottom:8px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Recommended Action:</div>
+        <div id="pb_action" style="font-size:13px;color:#f1f5f9;margin-top:2px;font-weight:500"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Port Restrictions:</div>
+          <div id="pb_ports" style="font-size:12px;color:#cbd5e1;margin-top:2px"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Rate Limit Policy:</div>
+          <div id="pb_ratelimit" style="font-size:12px;color:#cbd5e1;margin-top:2px"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Enforcement Firewall Rule:</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+          <code id="pb_rule" style="flex:1;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);padding:6px 8px;border-radius:6px;font-size:11px;color:#38bdf8;font-family:monospace;word-break:break-all"></code>
+          <button onclick="copyFirewallRule()" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:11px">Copy</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Deep Forensic Payload Hint:</div>
+        <div id="pb_hint" style="font-size:12px;color:#94a3b8;font-style:italic;margin-top:2px"></div>
+      </div>
+    </div>
+
+    <!-- SHAP Feature Contributions -->
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🔍 Root Cause: Top Feature Contributions (SHAP XAI)</div>
     <div id="shap_bars"></div>
+  </div>
+</div>
+
+<!-- DEVICE TELEMETRY & QUARANTINE MODAL -->
+<div class="modal-overlay" id="device_modal">
+  <div class="modal" style="position:relative;max-width:560px;width:92%;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5)">
+    <button class="modal-close" onclick="closeDeviceModal()">&times;</button>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <span id="dev_icon" style="font-size:30px">📡</span>
+      <div>
+        <h3 id="dev_name" style="margin:0;font-size:16px;color:#f8fafc">Device Details</h3>
+        <div id="dev_ip" style="font-size:12px;font-family:monospace;color:var(--text3);margin-top:2px"></div>
+      </div>
+      <span id="dev_state_badge" class="tag" style="margin-left:auto;font-weight:700">BENIGN</span>
+    </div>
+
+    <!-- Device Telemetry Grid -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);padding:14px;border-radius:10px">
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Classification</div>
+        <div id="dev_classification" style="font-weight:700;font-size:13px;color:#38bdf8;margin-top:2px">IoT Device</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Origin / GeoIP</div>
+        <div id="dev_geo" style="font-weight:600;font-size:13px;color:#f1f5f9;margin-top:2px">🏠 Private Network</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">ISP / Provider</div>
+        <div id="dev_isp" style="font-size:12px;color:var(--text2);margin-top:2px">Internal Subnet</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Abuse Score / Threat</div>
+        <div id="dev_threat" style="font-size:12px;color:#94a3b8;margin-top:2px">Clean</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display:flex;gap:12px;margin-top:18px">
+      <button id="btn_dev_quarantine" class="btn" style="flex:1;background:#ef4444;color:#fff;font-weight:700;padding:10px;border-radius:8px;border:none;cursor:pointer" onclick="quarantineCurrentDevice()">
+        🚫 Quarantine Host (Block)
+      </button>
+      <button id="btn_dev_unblock" class="btn" style="flex:1;background:#10b981;color:#fff;font-weight:700;padding:10px;border-radius:8px;border:none;cursor:pointer" onclick="unblockCurrentDevice()">
+        ✅ Unblock Host (Restore)
+      </button>
+    </div>
   </div>
 </div>
 
@@ -115,6 +205,156 @@
     <!-- ==================== PAGE: DASHBOARD ==================== -->
     <div class="page active" id="page_dashboard">
 
+      <!-- Enterprise Phase 11: SOC Executive SLA & Governance Strip -->
+      <div class="panel fade-in soc-governance-panel" style="margin-bottom:16px;border-left:4px solid #10b981;background:linear-gradient(135deg, rgba(16,185,129,0.04) 0%, rgba(15,23,42,0.6) 100%)">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#10b981;font-size:18px">🛡️</span>
+              Enterprise SOC Governance &amp; Fleet SLA Telemetry
+            </div>
+            <div class="panel-subtitle">Real-Time SecOps KPIs · NIS2 &amp; EU CRA Aligned · Cryptographic Audit Ledger Status</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('html')" id="btn_export_soc_html" title="Open Interactive Print-Ready Executive Report" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;cursor:pointer;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px">
+              <span>📄</span> Export Executive SOC Report
+            </button>
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('json')" id="btn_export_soc_json" title="Download Machine-Readable JSON Report" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:12px;font-weight:600">
+              JSON
+            </button>
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('markdown')" id="btn_export_soc_md" title="Download Markdown Report" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:12px;font-weight:600">
+              MD
+            </button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px">
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">MTTD (Detection)</span>
+              <span id="soc_mttd_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">SLA MET</span>
+            </div>
+            <div id="soc_mttd_val" style="font-size:22px;font-weight:800;color:#38bdf8;margin:4px 0">14.2 ms</div>
+            <div style="font-size:11px;color:var(--text3)">Target: &lt; 100 ms (Rolling Avg)</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">MTTR (Response)</span>
+              <span id="soc_mttr_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">SLA MET</span>
+            </div>
+            <div id="soc_mttr_val" style="font-size:22px;font-weight:800;color:#10b981;margin:4px 0">3.8 ms</div>
+            <div style="font-size:11px;color:var(--text3)">Target: &lt; 50 ms (eBPF / Netsh)</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Audit Ledger</span>
+              <span id="soc_audit_chain_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">VERIFIED</span>
+            </div>
+            <div id="soc_audit_val" style="font-size:18px;font-weight:800;color:#10b981;margin:4px 0">SHA-256 Chain</div>
+            <div style="font-size:11px;color:var(--text3)">Tamper-Evident Merkle Blocks</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Fleet Immunity</span>
+              <span id="soc_immunity_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">OPTIMAL</span>
+            </div>
+            <div id="soc_immunity_val" style="font-size:22px;font-weight:800;color:#10b981;margin:4px 0">100.0%</div>
+            <div style="font-size:11px;color:var(--text3)" id="soc_immunity_sub">Edge Nodes + Drift + Audit</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Hardware XDP Drops</span>
+              <span id="soc_xdp_status_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(56,189,248,0.2);color:#38bdf8;font-weight:700">NIC DRIVER</span>
+            </div>
+            <div id="soc_xdp_val" style="font-size:22px;font-weight:800;color:#38bdf8;margin:4px 0">0 pkts</div>
+            <div style="font-size:11px;color:var(--text3)" id="soc_blocks_sub">Active blocks: 0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Enterprise Phase 11: MITRE ATT&CK® Live Matrix Banner -->
+      <div class="panel fade-in mitre-matrix-panel" style="margin-bottom:16px;border-left:4px solid #f59e0b">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#f59e0b;font-size:18px">🎯</span>
+              MITRE ATT&amp;CK® Live Threat Matrix &amp; Kill-Chain Progression
+            </div>
+            <div class="panel-subtitle">Enterprise &amp; ICS/IoT Threat Framework Taxonomy Mapping · Live Active Threat Counts</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);display:flex;gap:12px;align-items:center">
+            <span>Mapped Threats: <b id="mitre_total_mapped" style="color:#f8fafc">0</b></span>
+            <span>Active Tactics: <b id="mitre_active_tactics" style="color:#f59e0b">0 / 6</b></span>
+          </div>
+        </div>
+
+        <div class="mitre-matrix-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px">
+          <!-- TA0043: Reconnaissance -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0043" style="border-top:3px solid #38bdf8;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#38bdf8">TA0043</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0043" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Reconnaissance</div>
+            <div id="mitre_tech_TA0043" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0001: Initial Access -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0001" style="border-top:3px solid #f59e0b;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#f59e0b">TA0001</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0001" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Initial Access</div>
+            <div id="mitre_tech_TA0001" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0002: Execution -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0002" style="border-top:3px solid #ec4899;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#ec4899">TA0002</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0002" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Execution</div>
+            <div id="mitre_tech_TA0002" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0006: Credential Access -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0006" style="border-top:3px solid #a855f7;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#a855f7">TA0006</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0006" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Credential Access</div>
+            <div id="mitre_tech_TA0006" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0011: Command and Control -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0011" style="border-top:3px solid #ef4444;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#ef4444">TA0011</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0011" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Command &amp; Control</div>
+            <div id="mitre_tech_TA0011" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0040: Impact -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0040" style="border-top:3px solid #dc2626;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#dc2626">TA0040</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0040" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Impact (Floods/DDoS)</div>
+            <div id="mitre_tech_TA0040" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+        </div>
+      </div>
+
       <!-- System Status -->
       <div class="section-title">System Status</div>
       <div class="panel fade-in">
@@ -125,6 +365,44 @@
           <div class="mi"><div class="mi-label">Train ROC-AUC</div><div class="mi-val" id="mi_auc" style="color:var(--green)">-</div></div>
           <div class="mi"><div class="mi-label">Threshold</div><div class="mi-val" id="mi_thr">-</div></div>
           <div class="mi"><div class="mi-label">Ensemble</div><div class="mi-val" id="mi_ens">-</div></div>
+        </div>
+      </div>
+
+      <!-- Fleet Federated Learning & Drift Status Card (Phase 6) -->
+      <div class="panel fade-in" style="margin-top:16px;border-left:4px solid #6366f1">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#6366f1">🌐</span>
+              Fleet Federated Learning & Feature Drift Monitor
+            </div>
+            <div class="panel-subtitle">Distributed Edge FedAvg · Differential Privacy Protected · Continuous Online Drift Tracking</div>
+          </div>
+          <button class="btn btn-sm" onclick="triggerFederatedRound()" id="btn_fed_round" style="background:#4f46e5;color:#fff;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600">
+            🔄 Run FedAvg Round
+          </button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px">
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Global FedAvg Round</div>
+            <div id="fed_round_num" style="font-size:18px;font-weight:800;color:#6366f1">Round 0</div>
+            <div id="fed_model_hash" style="font-size:11px;color:var(--text3);font-family:monospace">hash: -</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Online Edge Gateways</div>
+            <div id="fed_node_count" style="font-size:18px;font-weight:800;color:#10b981">4 Active Nodes</div>
+            <div style="font-size:11px;color:var(--text3)">Diff Privacy (DP): Enabled</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Fleet Feature Drift (PSI)</div>
+            <div id="fed_drift_badge" style="font-size:15px;font-weight:800;color:#10b981">🟢 Fleet Stable</div>
+            <div id="fed_drift_psi" style="font-size:11px;color:var(--text3)">Mean PSI: 0.000</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Continual Adaptation</div>
+            <div id="fed_recommendation" style="font-size:13px;font-weight:700;color:#f8fafc">FLEET_STABLE</div>
+            <div id="fed_last_sync" style="font-size:11px;color:var(--text3)">Auto-continual learning</div>
+          </div>
         </div>
       </div>
 
@@ -222,9 +500,13 @@
 
       <!-- Detection Breakdown -->
       <div class="section-title">Detection Breakdown</div>
-      <div class="panel fade-in" style="display:flex;gap:32px;flex-wrap:wrap">
-        <div style="flex:1;min-width:200px">
-          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Attack Types</div>
+      <div class="panel fade-in" style="display:flex;gap:24px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Canonical Taxonomies</div>
+          <div id="category_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Raw Attack Classes</div>
           <div id="class_chips" class="chips"><span class="chip">Loading...</span></div>
         </div>
         <div style="flex:1;min-width:200px">
@@ -236,23 +518,62 @@
 
     <!-- ==================== PAGE: NETWORK MAP ==================== -->
     <div class="page" id="page_network" style="display:none">
-      <div class="section-title">Network Topology</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div class="section-title" style="margin-bottom:0">Live Network Topology & Device Telemetry</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="chips" style="margin:0">
+            <span class="chip" id="topo_filter_all" style="cursor:pointer;background:var(--primary);color:#fff;font-weight:700" onclick="setTopoFilter('all')">All</span>
+            <span class="chip" id="topo_filter_iot" style="cursor:pointer" onclick="setTopoFilter('iot')">📡 IoT Only</span>
+            <span class="chip" id="topo_filter_it" style="cursor:pointer" onclick="setTopoFilter('it')">💻 IT Only</span>
+            <span class="chip" id="topo_filter_threats" style="cursor:pointer" onclick="setTopoFilter('threats')">🚨 Threat Nodes</span>
+          </div>
+          <button class="btn btn-sm" onclick="loadTopology()" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--text2);padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Topology Summary Metrics Strip -->
+      <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:10px;margin-bottom:14px">
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Total Devices</div>
+          <div id="topo_count_total" style="font-size:18px;font-weight:800;color:#f8fafc">12</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">IoT Nodes</div>
+          <div id="topo_count_iot" style="font-size:18px;font-weight:800;color:#10b981">6</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">IT Nodes</div>
+          <div id="topo_count_it" style="font-size:18px;font-weight:800;color:#06b6d4">4</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Grace (Warning)</div>
+          <div id="topo_count_grace" style="font-size:18px;font-weight:800;color:#f59e0b">0</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Quarantined (Blocked)</div>
+          <div id="topo_count_blocked" style="font-size:18px;font-weight:800;color:#ef4444">0</div>
+        </div>
+      </div>
+
       <div class="panel fade-in">
         <div class="panel-header">
           <div class="panel-title">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
-            Live Device Map
+            Interactive Device Topology Graph
           </div>
-          <div class="panel-subtitle">IoT + IT devices · Attack flows shown in red</div>
+          <div class="panel-subtitle">Click any device node to inspect telemetry, view GeoIP / threat intel, and trigger manual quarantine</div>
         </div>
-        <div class="topo-canvas-wrap">
+        <div class="topo-canvas-wrap" style="position:relative">
           <canvas id="topoCanvas"></canvas>
           <div class="topo-legend">
             <span><span class="dot" style="background:#3b82f6"></span> Router</span>
             <span><span class="dot" style="background:#8b5cf6"></span> Firewall</span>
             <span><span class="dot" style="background:#10b981"></span> IoT Device</span>
             <span><span class="dot" style="background:#06b6d4"></span> IT Device</span>
-            <span><span class="dot" style="background:#ef4444"></span> Attack</span>
+            <span><span class="dot" style="background:#f59e0b"></span> Soft Grace Hit</span>
+            <span><span class="dot" style="background:#ef4444"></span> Quarantined / Blocked</span>
           </div>
         </div>
       </div>
@@ -490,17 +811,42 @@ function updateGauge(score) {
   else { label.textContent = 'CRITICAL'; label.style.color = '#ef4444'; arc.setAttribute('stroke', 'url(#gg_high)'); sub.textContent = '⚠ Multiple active threats — take action!'; }
 }
 
-// --- TABLE ---
+// --- TABLE & TAXONOMY BADGES ---
+function catBadge(cat, sev) {
+  if (!cat || cat === 'Benign' || cat === 'benign') return '<span class="tag t-good">Benign</span>';
+  const s = String(sev || 'HIGH').toUpperCase();
+  const colors = {
+    'CRITICAL': 'background:rgba(239,68,68,0.22);color:#fca5a5;border:1px solid rgba(239,68,68,0.45)',
+    'HIGH': 'background:rgba(249,115,22,0.22);color:#fdba74;border:1px solid rgba(249,115,22,0.45)',
+    'MEDIUM': 'background:rgba(245,158,11,0.22);color:#fde68a;border:1px solid rgba(245,158,11,0.45)',
+    'LOW': 'background:rgba(59,130,246,0.22);color:#93c5fd;border:1px solid rgba(59,130,246,0.45)',
+  };
+  const style = colors[s] || colors['HIGH'];
+  return `<span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px;${style}"><span>⚡</span>${cat}</span>`;
+}
+
 function rowHtml(e) {
-  return `<tr onclick="openShapModal(${e.index})" title="Click for SHAP detail">
+  const isAtk = e.state === 'ATTACK';
+  const cat = e.attack_category || (isAtk ? (e.pred_class || 'DDoS-SYN') : 'Benign');
+  const pb = e.remediation_playbook;
+  const sev = pb ? pb.severity : (isAtk ? 'HIGH' : 'LOW');
+  
+  const classificationHtml = isAtk
+    ? `<div style="display:flex;align-items:center;gap:6px">
+         ${catBadge(cat, sev)}
+         <button onclick="event.stopPropagation();openShapModal(${e.index})" title="View Remediation Playbook" style="background:rgba(99,130,190,0.18);border:1px solid rgba(99,130,190,0.35);color:#cbd5e1;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">📋 Playbook</button>
+       </div>`
+    : '<span class="tag t-good">Benign</span>';
+
+  return `<tr onclick="openShapModal(${e.index})" title="Click for Remediation Playbook & SHAP detail" style="cursor:pointer">
     <td>${iso(e.ts)}</td><td>${e.index}</td>${scoreCell(e.score??0)}<td>${stateTag(e.state)}</td>
     <td class="threat-cell">${threatHtml(e.threat)}</td><td>${reasonHtml(e.reason)}</td>
-    <td>${e.pred_class??'-'}</td><td>${e.hits_in_window??0}</td><td>${actionTag(e.action)}</td></tr>`;
+    <td>${classificationHtml}</td><td>${e.hits_in_window??0}</td><td>${actionTag(e.action)}</td></tr>`;
 }
 function passesFilters(e){
   if(fltState!=='all'&&e.state!==fltState)return false;
   if(fltBlockedOnly&&!(e.action&&String(e.action).startsWith('BLOCK')))return false;
-  if(fltText){const t=fltText;const hay=[e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!hay.includes(t))return false}
+  if(fltText){const t=fltText;const hay=[e.attack_category||'',e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!hay.includes(t))return false}
   return true;
 }
 function renderTable(){
@@ -511,21 +857,56 @@ function renderTable(){
 }
 function toggleExpand(){const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');w.classList.toggle('expanded');b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events'}
 
-// --- SHAP MODAL ---
+// --- REMEDIATION PLAYBOOK & SHAP MODAL ---
 async function openShapModal(index) {
   const overlay = document.getElementById('shap_modal');
+  const ev = allEvents.find(e => e.index === index) || {};
+  const isAtk = ev.state === 'ATTACK';
+  const pbCard = document.getElementById('playbook_card');
+  const catBadgeEl = document.getElementById('modal_cat_badge');
+
+  const pb = ev.remediation_playbook;
+  const cat = ev.attack_category || ev.pred_class || (isAtk ? 'Attack Anomaly' : 'Benign');
+
+  if (isAtk && (pb || cat)) {
+    pbCard.style.display = 'block';
+    catBadgeEl.style.display = 'inline-block';
+    catBadgeEl.innerHTML = catBadge(cat, pb ? pb.severity : 'HIGH');
+
+    document.getElementById('pb_title').textContent = pb && pb.title ? pb.title : `${cat} Remediation Playbook`;
+    const sevEl = document.getElementById('pb_severity');
+    const sevText = pb && pb.severity ? pb.severity : 'HIGH';
+    sevEl.textContent = sevText;
+    sevEl.className = 'tag ' + (sevText === 'CRITICAL' || sevText === 'HIGH' ? 't-bad' : 't-warn');
+
+    document.getElementById('pb_action').textContent = pb && pb.recommended_action ? pb.recommended_action : 'Quarantine source IP and inspect anomalous flow indicators.';
+    document.getElementById('pb_ports').textContent = pb && pb.port_restrictions ? pb.port_restrictions : 'Inspect affected TCP/UDP transport ports.';
+    document.getElementById('pb_ratelimit').textContent = pb && pb.rate_limit_policy ? pb.rate_limit_policy : 'Apply adaptive throttling per host.';
+    document.getElementById('pb_rule').textContent = pb && pb.firewall_rule ? pb.firewall_rule : `netsh advfirewall firewall add rule name="IoTGuard_Block" dir=in action=block remoteip=${ev.src_ip || '<TARGET_IP>'}`;
+    document.getElementById('pb_hint').textContent = pb && pb.payload_inspection_hint ? pb.payload_inspection_hint : 'Analyze packet inter-arrival times and protocol ratios.';
+  } else {
+    pbCard.style.display = 'none';
+    catBadgeEl.style.display = 'none';
+  }
+
   try {
     const r = await fetch('/api/shap_detail?index=' + index);
     const j = await r.json();
-    if (!j.ok) { showToast('info', 'No SHAP data for event #' + index); return; }
-    document.getElementById('shap_title').textContent = `🔍 SHAP — Event #${index}`;
-    document.getElementById('shap_meta').innerHTML = `Score: <strong style="color:${j.score>=0.7?'var(--red)':'var(--green)'}"> ${(j.score||0).toFixed(4)}</strong> · State: ${stateTag(j.state)} · Class: ${j.pred_class||'-'}`;
+    if (!j.ok) {
+      if (!isAtk) showToast('info', 'No SHAP data for event #' + index);
+    }
+    document.getElementById('shap_title').textContent = isAtk ? `🛡️ ${cat} — Event #${index}` : `🔍 SHAP — Event #${index}`;
+    const scoreVal = j.score ?? ev.score ?? 0;
+    const scoreColor = scoreVal >= 0.7 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('shap_meta').innerHTML = `Score: <strong style="color:${scoreColor}"> ${scoreVal.toFixed(4)}</strong> · State: ${stateTag(ev.state || j.state)} · Taxonomy: <strong>${cat}</strong>${ev.src_ip ? ' · Target IP: <code>' + ev.src_ip + '</code>' : ''}`;
+
     const bars = document.getElementById('shap_bars');
-    if (!j.contributions || j.contributions.length === 0) {
-      bars.innerHTML = '<div style="color:var(--text3);text-align:center;padding:20px">No SHAP contributions available for this event</div>';
+    const contribs = j.contributions || [];
+    if (!contribs.length) {
+      bars.innerHTML = '<div style="color:var(--text3);text-align:center;padding:14px;font-size:12px">No SHAP contributions available for this event</div>';
     } else {
-      const maxAbs = Math.max(...j.contributions.map(c => Math.abs(c.value)), 0.01);
-      bars.innerHTML = j.contributions.map(c => {
+      const maxAbs = Math.max(...contribs.map(c => Math.abs(c.value)), 0.01);
+      bars.innerHTML = contribs.map(c => {
         const pct = Math.abs(c.value) / maxAbs * 45;
         const isPos = c.value > 0;
         return `<div class="shap-bar-row">
@@ -536,10 +917,20 @@ async function openShapModal(index) {
       }).join('');
     }
     overlay.classList.add('active');
-  } catch(e) { showToast('info', 'Could not load SHAP data'); }
+  } catch(e) {
+    overlay.classList.add('active');
+  }
 }
 function closeShapModal() { document.getElementById('shap_modal').classList.remove('active'); }
 document.getElementById('shap_modal').addEventListener('click', e => { if(e.target.classList.contains('modal-overlay')) closeShapModal(); });
+
+function copyFirewallRule() {
+  const code = document.getElementById('pb_rule').textContent;
+  if (code && navigator.clipboard) {
+    navigator.clipboard.writeText(code);
+    showToast('info', '📋 Firewall rule copied to clipboard');
+  }
+}
 
 // --- CHARTS SETUP ---
 function setupCharts() {
@@ -602,7 +993,160 @@ async function loadHeatmap() {
   } catch(e) { console.log('Heatmap load failed:', e); }
 }
 
-// --- TOPOLOGY CANVAS ---
+// --- INTERACTIVE TOPOLOGY & DEVICE TELEMETRY ---
+let topoFilter = 'all';
+let currentSelectedDevice = null;
+let hoveredDevice = null;
+let topoListenersAttached = false;
+
+function setTopoFilter(filter) {
+  topoFilter = filter;
+  ['all', 'iot', 'it', 'threats'].forEach(f => {
+    const el = document.getElementById(`topo_filter_${f}`);
+    if (el) {
+      if (f === filter) {
+        el.style.background = 'var(--primary)';
+        el.style.color = '#fff';
+        el.style.fontWeight = '700';
+      } else {
+        el.style.background = 'transparent';
+        el.style.color = 'var(--text2)';
+        el.style.fontWeight = '500';
+      }
+    }
+  });
+}
+
+function openDeviceModal(dev) {
+  if (!dev) return;
+  currentSelectedDevice = dev;
+  const ip = dev.ip || dev.id;
+  const isBlocked = dev.state === 'BLOCKED' || dev.blocked;
+  const isGrace = dev.state === 'GRACE';
+
+  const nameEl = document.getElementById('dev_name');
+  const ipEl = document.getElementById('dev_ip');
+  const badgeEl = document.getElementById('dev_state_badge');
+  const typeEl = document.getElementById('dev_classification');
+  const geoEl = document.getElementById('dev_geo');
+  const ispEl = document.getElementById('dev_isp');
+  const threatEl = document.getElementById('dev_threat');
+  const btnQuarantine = document.getElementById('btn_dev_quarantine');
+  const btnUnblock = document.getElementById('btn_dev_unblock');
+
+  if (nameEl) nameEl.textContent = dev.label || `Device ${ip}`;
+  if (ipEl) ipEl.textContent = `IP: ${ip} · Entity: ${dev.id}`;
+  
+  if (badgeEl) {
+    if (isBlocked) {
+      badgeEl.className = 'tag t-bad';
+      badgeEl.textContent = 'QUARANTINED (BLOCKED)';
+    } else if (isGrace) {
+      badgeEl.className = 'tag t-warn';
+      badgeEl.textContent = 'GRACE PERIOD (WARNING)';
+    } else {
+      badgeEl.className = 'tag t-ok';
+      badgeEl.textContent = 'BENIGN (HEALTHY)';
+    }
+  }
+
+  if (typeEl) {
+    const isIoT = dev.type === 'iot' || dev.type === 'router' || dev.type === 'firewall';
+    typeEl.textContent = `${isIoT ? '📡 IoT Device' : '💻 IT Endpoint'} (${(dev.type || 'unknown').toUpperCase()})`;
+    typeEl.style.color = isIoT ? '#10b981' : '#06b6d4';
+  }
+
+  if (geoEl) {
+    const flag = dev.flag || '🏠';
+    const cName = dev.country_name || (dev.country === 'LAN' ? 'Private Network' : dev.country || 'Unknown');
+    geoEl.textContent = `${flag} ${cName}`;
+  }
+
+  if (ispEl) {
+    ispEl.textContent = dev.isp || (dev.country === 'LAN' ? 'Internal Gateway / Subnet' : 'Autonomous Network');
+  }
+
+  if (threatEl) {
+    if (dev.threat) {
+      threatEl.textContent = `🚨 ${dev.threat}`;
+      threatEl.style.color = '#ef4444';
+    } else if (dev.abuse_score && dev.abuse_score > 0) {
+      threatEl.textContent = `⚠️ Abuse Confidence: ${dev.abuse_score}%`;
+      threatEl.style.color = '#f59e0b';
+    } else {
+      threatEl.textContent = '✅ Clean / Normal Profile';
+      threatEl.style.color = '#10b981';
+    }
+  }
+
+  if (btnQuarantine && btnUnblock) {
+    if (isBlocked) {
+      btnQuarantine.style.opacity = '0.5';
+      btnQuarantine.disabled = true;
+      btnUnblock.style.opacity = '1.0';
+      btnUnblock.disabled = false;
+    } else {
+      btnQuarantine.style.opacity = '1.0';
+      btnQuarantine.disabled = false;
+      btnUnblock.style.opacity = '0.5';
+      btnUnblock.disabled = true;
+    }
+  }
+
+  const modal = document.getElementById('device_modal');
+  if (modal) modal.classList.add('open');
+}
+
+function closeDeviceModal() {
+  const modal = document.getElementById('device_modal');
+  if (modal) modal.classList.remove('open');
+  currentSelectedDevice = null;
+}
+
+async function quarantineCurrentDevice() {
+  if (!currentSelectedDevice || !currentSelectedDevice.ip) return;
+  const ip = currentSelectedDevice.ip;
+  try {
+    const res = await fetch('/api/block', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ip: ip, severity: 'hard', reason: 'Operator Manual Quarantine'}),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast(`🚫 Quarantine rule applied for ${ip}`, 'bad');
+      closeDeviceModal();
+      await loadTopology();
+    } else {
+      showToast(`Failed to quarantine: ${j.error || 'Unknown error'}`, 'bad');
+    }
+  } catch (err) {
+    showToast(`Block error: ${err}`, 'bad');
+  }
+}
+
+async function unblockCurrentDevice() {
+  if (!currentSelectedDevice || !currentSelectedDevice.ip) return;
+  const ip = currentSelectedDevice.ip;
+  try {
+    const res = await fetch('/api/unblock', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ip: ip}),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast(`✅ Host ${ip} unblocked and restored`, 'ok');
+      closeDeviceModal();
+      await loadTopology();
+    } else {
+      showToast(`Failed to unblock: ${j.error || 'Unknown error'}`, 'bad');
+    }
+  } catch (err) {
+    showToast(`Unblock error: ${err}`, 'bad');
+  }
+}
+
 function initTopology() {
   const canvas = document.getElementById('topoCanvas');
   if (!canvas) return;
@@ -611,7 +1155,46 @@ function initTopology() {
   canvas.height = wrap.clientHeight * 2;
   canvas.style.width = wrap.clientWidth + 'px';
   canvas.style.height = wrap.clientHeight + 'px';
+
+  if (!topoListenersAttached) {
+    topoListenersAttached = true;
+    canvas.addEventListener('mousemove', (e) => {
+      if (!topoData || !topoData.devices) return;
+      const rect = canvas.getBoundingClientRect();
+      const W = canvas.width, H = canvas.height;
+      const mx = ((e.clientX - rect.left) / rect.width) * W;
+      const my = ((e.clientY - rect.top) / rect.height) * H;
+
+      let hit = null;
+      for (const d of topoData.devices) {
+        if (!shouldRenderDevice(d)) continue;
+        const dx = d.x * W, dy = d.y * H;
+        const dist = Math.hypot(mx - dx, my - dy);
+        if (dist <= 30) {
+          hit = d;
+          break;
+        }
+      }
+      hoveredDevice = hit;
+      canvas.style.cursor = hit ? 'pointer' : 'default';
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (hoveredDevice) {
+        openDeviceModal(hoveredDevice);
+      }
+    });
+  }
+
   loadTopology();
+}
+
+function shouldRenderDevice(d) {
+  if (topoFilter === 'all') return true;
+  if (topoFilter === 'iot') return d.type === 'iot' || d.type === 'router' || d.type === 'firewall';
+  if (topoFilter === 'it') return d.type === 'it' || d.type === 'router' || d.type === 'firewall';
+  if (topoFilter === 'threats') return d.state === 'BLOCKED' || d.state === 'GRACE' || Boolean(d.threat);
+  return true;
 }
 
 let topoParticles = [];
@@ -619,8 +1202,25 @@ async function loadTopology() {
   try {
     const r = await fetch('/api/topology');
     topoData = await r.json();
-    if (topoData.ok) { topoParticles = []; drawTopology(); }
+    if (topoData.ok) {
+      topoParticles = [];
+      updateTopologySummary(topoData.summary);
+      drawTopology();
+    }
   } catch(e) { console.log('Topology load failed:', e); }
+}
+
+function updateTopologySummary(sum) {
+  if (!sum) return;
+  const setTxt = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val !== undefined ? val : 0;
+  };
+  setTxt('topo_count_total', sum.total_nodes);
+  setTxt('topo_count_iot', sum.iot_count);
+  setTxt('topo_count_it', sum.it_count);
+  setTxt('topo_count_grace', sum.grace_count);
+  setTxt('topo_count_blocked', sum.blocked_count);
 }
 
 function drawTopology() {
@@ -637,64 +1237,133 @@ function drawTopology() {
   for (const conn of topoData.connections) {
     const from = deviceMap[conn.from], to = deviceMap[conn.to];
     if (!from || !to) continue;
+    if (!shouldRenderDevice(from) || !shouldRenderDevice(to)) continue;
+
     const fx = from.x * W, fy = from.y * H, tx = to.x * W, ty = to.y * H;
     ctx.beginPath();
     ctx.moveTo(fx, fy); ctx.lineTo(tx, ty);
-    ctx.strokeStyle = conn.attack ? 'rgba(239,68,68,0.5)' : 'rgba(99,130,190,0.12)';
-    ctx.lineWidth = conn.attack ? 3 : 1.5;
+
+    const isAttacked = conn.attack || to.state === 'BLOCKED' || to.state === 'GRACE';
+    ctx.strokeStyle = to.state === 'BLOCKED' ? 'rgba(239,68,68,0.6)' : isAttacked ? 'rgba(245,158,11,0.5)' : 'rgba(99,130,190,0.12)';
+    ctx.lineWidth = isAttacked ? 3 : 1.5;
     ctx.stroke();
-    // Add particles on attack connections
-    if (conn.attack && Math.random() < 0.15) {
-      topoParticles.push({fx,fy,tx,ty,progress:0,speed:0.008+Math.random()*0.01});
+
+    // Add glowing particle on active connection
+    if (isAttacked && Math.random() < 0.20) {
+      const pColor = to.state === 'BLOCKED' ? 'rgba(239,68,68,' : 'rgba(245,158,11,';
+      topoParticles.push({fx, fy, tx, ty, progress: 0, speed: 0.009 + Math.random() * 0.012, color: pColor});
     }
   }
 
-  // Draw particles
+  // Draw dynamic particles
   topoParticles = topoParticles.filter(p => p.progress < 1);
   for (const p of topoParticles) {
     p.progress += p.speed;
     const x = p.fx + (p.tx - p.fx) * p.progress;
     const y = p.fy + (p.ty - p.fy) * p.progress;
+    const col = p.color || 'rgba(239,68,68,';
     ctx.beginPath();
     ctx.arc(x, y, 4, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(239,68,68,${1 - p.progress})`;
+    ctx.fillStyle = `${col}${1 - p.progress})`;
     ctx.fill();
-    // Glow
     ctx.beginPath();
     ctx.arc(x, y, 8, 0, Math.PI * 2);
-    ctx.fillStyle = `rgba(239,68,68,${0.2 * (1 - p.progress)})`;
+    ctx.fillStyle = `${col}${0.25 * (1 - p.progress)})`;
     ctx.fill();
   }
 
-  // Draw device nodes
+  // Draw device nodes with real-time state rings
   const typeColors = {router:'#3b82f6',firewall:'#8b5cf6',iot:'#10b981',it:'#06b6d4'};
-  const typeIcons = {router:'🌐',firewall:'🛡',iot:'📡',it:'💻'};
+  const typeIcons = {router:'🌐',firewall:'🛡️',iot:'📡',it:'💻'};
+
   for (const d of topoData.devices) {
+    if (!shouldRenderDevice(d)) continue;
     const x = d.x * W, y = d.y * H;
-    const color = typeColors[d.type] || '#94a3b8';
-    // Outer glow
+    let baseColor = typeColors[d.type] || '#94a3b8';
+    let ringRadius = 22;
+    let ringColor = 'rgba(59,130,246,0.15)';
+    let borderStroke = baseColor;
+    let badgeIcon = typeIcons[d.type] || '•';
+
+    // Real-Time Traffic States
+    if (d.state === 'BLOCKED') {
+      // Red Pulsing Ring
+      const pulse = Math.sin(Date.now() / 150) * 5;
+      ringRadius = 24 + pulse;
+      ringColor = 'rgba(239,68,68,0.35)';
+      borderStroke = '#ef4444';
+      badgeIcon = '🚫';
+    } else if (d.state === 'GRACE') {
+      // Amber Warning Ring
+      const pulse = Math.sin(Date.now() / 250) * 3;
+      ringRadius = 23 + pulse;
+      ringColor = 'rgba(245,158,11,0.25)';
+      borderStroke = '#f59e0b';
+      badgeIcon = '⚠️';
+    } else {
+      // Benign Green / Cyan Ring
+      ringColor = baseColor.replace(')', ',0.12)').replace('rgb', 'rgba');
+      borderStroke = baseColor;
+    }
+
+    // Outer Glow / Pulse Ring
     ctx.beginPath();
-    ctx.arc(x, y, 22, 0, Math.PI * 2);
-    ctx.fillStyle = color.replace(')', ',0.1)').replace('rgb', 'rgba');
+    ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+    ctx.fillStyle = ringColor;
     ctx.fill();
-    // Node circle
+
+    // Node Body
     ctx.beginPath();
-    ctx.arc(x, y, 14, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(10,14,26,0.9)';
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fillStyle = hoveredDevice === d ? 'rgba(30,41,59,0.95)' : 'rgba(10,14,26,0.92)';
     ctx.fill();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = borderStroke;
+    ctx.lineWidth = hoveredDevice === d ? 3.5 : 2;
     ctx.stroke();
-    // Icon
+
+    // Node Center Icon
     ctx.font = '14px sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(typeIcons[d.type] || '•', x, y);
-    // Label
-    ctx.font = '500 11px Inter, sans-serif';
-    ctx.fillStyle = '#94a3b8';
+    ctx.fillText(badgeIcon, x, y);
+
+    // Country Flag + Node Label
+    const flag = d.flag || '🏠';
+    ctx.font = '600 11px Inter, sans-serif';
+    ctx.fillStyle = d.state === 'BLOCKED' ? '#f87171' : d.state === 'GRACE' ? '#fbbf24' : '#cbd5e1';
     ctx.textAlign = 'center';
-    ctx.fillText(d.label, x, y + 26);
+    ctx.fillText(`${flag} ${d.label || d.id}`, x, y + 27);
+
+    // IP Subtitle
+    if (d.ip) {
+      ctx.font = '400 9px monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(d.ip, x, y + 39);
+    }
+  }
+
+  // Draw Hover Tooltip
+  if (hoveredDevice) {
+    const hx = hoveredDevice.x * W, hy = hoveredDevice.y * H;
+    const ttText = `${hoveredDevice.flag || ''} ${hoveredDevice.label || hoveredDevice.id} [${hoveredDevice.state || 'BENIGN'}] - Click to Manage`;
+    ctx.font = '600 11px Inter, sans-serif';
+    const textW = ctx.measureText(ttText).width;
+    const pad = 8;
+    const boxX = Math.max(10, Math.min(W - textW - pad*2 - 10, hx - (textW + pad*2)/2));
+    const boxY = Math.max(10, hy - 48);
+
+    ctx.fillStyle = 'rgba(15,23,42,0.95)';
+    ctx.strokeStyle = 'rgba(56,189,248,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, textW + pad*2, 24, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(ttText, boxX + pad, boxY + 12);
   }
 
   topoAnimFrame = requestAnimationFrame(drawTopology);
@@ -752,6 +1421,11 @@ async function refreshCounts() {
       pieChart.update('none');
     }
     // Chips
+    const catChips = document.getElementById('category_chips');
+    if (catChips && j.category_counts) {
+      const entries = Object.entries(j.category_counts).sort((a,b) => b[1]-a[1]);
+      catChips.innerHTML = entries.map(([n,c]) => `<span class="chip" style="background:rgba(239,68,68,0.14);border-color:rgba(239,68,68,0.35);color:#fca5a5;font-weight:600">⚡ ${n}: ${c}</span>`).join('') || '<span class="chip">No active threats</span>';
+    }
     const chips = document.getElementById('class_chips');
     if (chips && j.class_counts) {
       const entries = Object.entries(j.class_counts).sort((a,b) => b[1]-a[1]);
@@ -943,9 +1617,199 @@ async function tick() {
   await refreshEvents();
   await checkDemoStatus();
 }
+// Federated Learning & Drift Status Helpers (Phase 6)
+async function loadFederatedStatus() {
+  try {
+    const res = await fetch('/api/v1/federated/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const roundEl = document.getElementById('fed_round_num');
+    const hashEl = document.getElementById('fed_model_hash');
+    const nodeEl = document.getElementById('fed_node_count');
+    const badgeEl = document.getElementById('fed_drift_badge');
+    const psiEl = document.getElementById('fed_drift_psi');
+    const recEl = document.getElementById('fed_recommendation');
+
+    if (roundEl) roundEl.textContent = `Round ${data.round || 0}`;
+    if (hashEl) hashEl.textContent = `hash: ${data.global_model_hash || '-'}`;
+    if (nodeEl) nodeEl.textContent = `${data.total_nodes || 4} Active Nodes`;
+
+    const drift = data.drift_status || {};
+    if (badgeEl) {
+      if (drift.drift_detected) {
+        badgeEl.textContent = '🟡 Drift Detected';
+        badgeEl.style.color = 'var(--amber)';
+      } else {
+        badgeEl.textContent = '🟢 Fleet Stable';
+        badgeEl.style.color = 'var(--green)';
+      }
+    }
+    if (psiEl) psiEl.textContent = `Mean PSI: ${(drift.mean_psi || 0).toFixed(4)}`;
+    if (recEl) {
+      recEl.textContent = drift.recommendation || 'FLEET_STABLE';
+      recEl.style.color = drift.recommendation === 'TRIGGER_FEDERATED_SYNC' ? 'var(--amber)' : '#f8fafc';
+    }
+  } catch(e) {}
+}
+
+async function triggerFederatedRound() {
+  const btn = document.getElementById('btn_fed_round');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Training...'; }
+  try {
+    const res = await fetch('/api/v1/federated/round', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ epochs: 3, lr: 0.02, reason: 'dashboard_operator' }),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast('info', `FedAvg Round ${j.round_report.round} complete! Hash: ${j.round_report.global_model_hash}`);
+      loadFederatedStatus();
+    } else {
+      showToast('error', j.error || 'Federated round failed');
+    }
+  } catch(e) {
+    showToast('error', 'Network error triggering federated round');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Run FedAvg Round'; }
+  }
+}
+
+// Enterprise Phase 11: SOC Metrics & MITRE Heatmap Poller
+async function loadSocKpis() {
+  try {
+    const res = await fetch('/api/v1/soc/kpis');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // MTTD
+    const mttdEl = document.getElementById('soc_mttd_val');
+    const mttdBadge = document.getElementById('soc_mttd_badge');
+    if (mttdEl) mttdEl.textContent = `${(data.mttd_ms || 0).toFixed(1)} ms`;
+    if (mttdBadge) {
+      if (data.mttd_sla_status === 'MET') {
+        mttdBadge.textContent = 'SLA MET';
+        mttdBadge.style.background = 'rgba(16,185,129,0.2)';
+        mttdBadge.style.color = '#10b981';
+      } else {
+        mttdBadge.textContent = 'BREACHED';
+        mttdBadge.style.background = 'rgba(239,68,68,0.2)';
+        mttdBadge.style.color = '#ef4444';
+      }
+    }
+
+    // MTTR
+    const mttrEl = document.getElementById('soc_mttr_val');
+    const mttrBadge = document.getElementById('soc_mttr_badge');
+    if (mttrEl) mttrEl.textContent = `${(data.mttr_ms || 0).toFixed(1)} ms`;
+    if (mttrBadge) {
+      if (data.mttr_sla_status === 'MET') {
+        mttrBadge.textContent = 'SLA MET';
+        mttrBadge.style.background = 'rgba(16,185,129,0.2)';
+        mttrBadge.style.color = '#10b981';
+      } else {
+        mttrBadge.textContent = 'BREACHED';
+        mttrBadge.style.background = 'rgba(239,68,68,0.2)';
+        mttrBadge.style.color = '#ef4444';
+      }
+    }
+
+    // Audit Ledger
+    const auditEl = document.getElementById('soc_audit_val');
+    const auditBadge = document.getElementById('soc_audit_chain_badge');
+    if (auditEl && auditBadge) {
+      if (data.audit_chain_status === 'VERIFIED') {
+        auditBadge.textContent = 'VERIFIED';
+        auditBadge.style.background = 'rgba(16,185,129,0.2)';
+        auditBadge.style.color = '#10b981';
+        auditEl.style.color = '#10b981';
+      } else {
+        auditBadge.textContent = 'COMPROMISED';
+        auditBadge.style.background = 'rgba(239,68,68,0.2)';
+        auditBadge.style.color = '#ef4444';
+        auditEl.style.color = '#ef4444';
+      }
+    }
+
+    // Fleet Immunity
+    const immVal = document.getElementById('soc_immunity_val');
+    const immBadge = document.getElementById('soc_immunity_badge');
+    if (immVal) {
+      immVal.textContent = `${(data.fleet_immunity_index || 0).toFixed(1)}%`;
+      immVal.style.color = data.fleet_immunity_rating === 'OPTIMAL' ? '#10b981' : (data.fleet_immunity_rating === 'STABLE' ? '#f59e0b' : '#ef4444');
+    }
+    if (immBadge) {
+      immBadge.textContent = data.fleet_immunity_rating || 'OPTIMAL';
+      const c = data.fleet_immunity_rating === 'OPTIMAL' ? '#10b981' : (data.fleet_immunity_rating === 'STABLE' ? '#f59e0b' : '#ef4444');
+      immBadge.style.color = c;
+      immBadge.style.background = `${c}33`;
+    }
+
+    // Hardware XDP Drops & Blocks
+    const xdpVal = document.getElementById('soc_xdp_val');
+    const blocksSub = document.getElementById('soc_blocks_sub');
+    if (xdpVal) xdpVal.textContent = `${(data.xdp_hardware_drops || 0).toLocaleString()} pkts`;
+    if (blocksSub) blocksSub.textContent = `Active blocks: ${data.active_blocks_count || 0}`;
+
+    // MITRE ATT&CK Matrix
+    const mitre = data.mitre_matrix || {};
+    const totEl = document.getElementById('mitre_total_mapped');
+    const actTacticsEl = document.getElementById('mitre_active_tactics');
+    if (totEl) totEl.textContent = mitre.total_mapped_threats || 0;
+    if (actTacticsEl) actTacticsEl.textContent = `${mitre.active_tactics_count || 0} / 6`;
+
+    const tactics = (mitre && mitre.tactics) ? mitre.tactics : {};
+    const tacticKeys = ['TA0043', 'TA0001', 'TA0002', 'TA0006', 'TA0011', 'TA0040'];
+    tacticKeys.forEach(tid => {
+      const t = tactics[tid] || { count: 0, techniques: [] };
+      const colEl = document.getElementById(`mitre_col_${tid}`);
+      const cntEl = document.getElementById(`mitre_cnt_${tid}`);
+      const techEl = document.getElementById(`mitre_tech_${tid}`);
+
+      if (cntEl) {
+        cntEl.textContent = t.count || 0;
+        if (t.count > 0) {
+          cntEl.style.background = t.color || '#ef4444';
+          cntEl.style.color = '#ffffff';
+        } else {
+          cntEl.style.background = '#1e293b';
+          cntEl.style.color = '#94a3b8';
+        }
+      }
+
+      if (colEl) {
+        if (t.count > 0) {
+          colEl.classList.add('mitre-col-active');
+        } else {
+          colEl.classList.remove('mitre-col-active');
+        }
+      }
+
+      if (techEl) {
+        if (t.techniques && t.techniques.length > 0) {
+          techEl.innerHTML = t.techniques.slice(0, 3).map(tech => `<div style="margin-bottom:2px;font-weight:600;color:#e2e8f0">• ${tech}</div>`).join('');
+        } else {
+          techEl.textContent = 'No active threats';
+        }
+      }
+    });
+
+  } catch(e) {}
+}
+
+function exportExecutiveReport(fmt) {
+  const url = `/api/v1/reports/executive?format=${fmt || 'html'}`;
+  window.open(url, '_blank');
+}
+
 // Slower background refresh for secondary data
 async function slowTick() {
   loadTopAttackers();
+  loadFederatedStatus();
+  loadSocKpis();
 }
 
 // --- EVENT LISTENERS ---
@@ -996,6 +1860,7 @@ try {
     }
     lastTs = e.ts;
     refreshCounts();
+    loadSocKpis();
   });
   socket.on('config_changed', () => loadConfig());
 } catch(err) {

@@ -336,21 +336,25 @@ class TestBlockerDriverHierarchy:
         assert "total_xdp_drops" in tel
 
     def test_get_driver_telemetry_resilient_to_permission_denied(self):
-        """Telemtry must handle PermissionError on Linux /sys/fs/bpf gracefully."""
-        from unittest.mock import patch
+        """Telemetry must handle PermissionError on Linux /sys/fs/bpf gracefully."""
+        from unittest.mock import patch, MagicMock
         from pathlib import Path
+        from ebpf_driver import _safe_exists
 
-        orig_exists = Path.exists
+        # 1. Verify _safe_exists catches PermissionError on restricted paths
+        mock_path = MagicMock(spec=Path)
+        mock_path.exists.side_effect = PermissionError(13, "Permission denied: '/sys/fs/bpf/iotguard_blocked_ips'")
+        assert _safe_exists(mock_path) is False
 
-        def fake_exists(*args, **kwargs):
-            if args and "bpf" in str(args[0]):
-                raise PermissionError(13, "Permission denied: '/sys/fs/bpf/iotguard_blocked_ips'")
-            return orig_exists(*args, **kwargs)
+        # 2. Verify blocker.get_driver_telemetry() handles telemetry exception with defined logger
+        mock_ebpf = MagicMock()
+        mock_ebpf.get_drop_stats.side_effect = PermissionError(13, "Permission denied")
 
-        with patch.object(Path, "exists", side_effect=fake_exists):
+        with patch("blocker.get_ebpf_blocker", return_value=mock_ebpf):
             tel = blocker.get_driver_telemetry()
             assert isinstance(tel, dict)
             assert "active_driver" in tel
+            assert tel["total_xdp_drops"] == 0
 
 
 # ============================================================================

@@ -49,6 +49,8 @@ def _safe_exists(p: Optional[Union[str, Path]]) -> bool:
     if p is None:
         return False
     try:
+        if isinstance(p, Path):
+            return p.exists()
         return Path(p).exists()
     except (PermissionError, OSError):
         return False

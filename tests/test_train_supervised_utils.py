@@ -49,6 +49,16 @@ class TestToBinaryLabels:
             f"Expected {expected}, got {y.tolist()}"
         )
 
+    def test_pandas_string_dtype_extension(self):
+        """
+        Test that pandas ExtensionArray StringDtype (string[python]) labels
+        are correctly converted without raising TypeError from np.issubdtype.
+        """
+        s = pd.Series(["benign", "BENIGN", "attack", "ddos", "Benign"], dtype="string")
+        y = _to_binary_labels(s)
+        expected = [0, 0, 1, 1, 0]
+        assert y.tolist() == expected
+
     def test_numeric_labels_passthrough(self):
         """
         Test that already-numeric labels are passed through correctly.

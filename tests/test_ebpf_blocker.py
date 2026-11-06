@@ -335,6 +335,21 @@ class TestBlockerDriverHierarchy:
         assert "drop_stats" in tel
         assert "total_xdp_drops" in tel
 
+    def test_get_driver_telemetry_resilient_to_permission_denied(self):
+        """Telemtry must handle PermissionError on Linux /sys/fs/bpf gracefully."""
+        from unittest.mock import patch
+        from pathlib import Path
+
+        def fake_exists(path_obj):
+            if "bpf" in str(path_obj):
+                raise PermissionError(13, "Permission denied: '/sys/fs/bpf/iotguard_blocked_ips'")
+            return False
+
+        with patch.object(Path, "exists", side_effect=fake_exists):
+            tel = blocker.get_driver_telemetry()
+            assert isinstance(tel, dict)
+            assert "active_driver" in tel
+
 
 # ============================================================================
 # 4. API & Metrics Telemetry Integration Tests

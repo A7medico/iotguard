@@ -44,6 +44,16 @@ DEFAULT_XDP_OBJ_PATH = Path("scripts/4_response/xdp_iotguard.o")
 COMMAND_TIMEOUT = 5
 
 
+def _safe_exists(p: Optional[Union[str, Path]]) -> bool:
+    """Safely check if a path exists without raising PermissionError or OSError."""
+    if p is None:
+        return False
+    try:
+        return Path(p).exists()
+    except (PermissionError, OSError):
+        return False
+
+
 # ============================================================================
 # 1. IPv4 Byte Order & BPF Map Formatting Helpers
 # ============================================================================
@@ -197,7 +207,7 @@ class EBPFBlocker:
 
         # Check if BPF filesystem is mounted or accessible
         bpf_fs = Path("/sys/fs/bpf")
-        if not bpf_fs.exists():
+        if not _safe_exists(bpf_fs):
             return False
 
         return True
@@ -257,7 +267,7 @@ class EBPFBlocker:
         iface = interface or self.interface
         bpf_obj = Path(obj_path or self.obj_path)
 
-        if not bpf_obj.exists():
+        if not _safe_exists(bpf_obj):
             return False, f"Compiled XDP object not found at {bpf_obj}"
 
         # Choose attachment mode flag
@@ -322,7 +332,7 @@ class EBPFBlocker:
             }
 
         # If kernel BPF map is not active/available, shadow map operates in simulated mode
-        if not self.is_available() or not self.map_pin_path.exists():
+        if not self.is_available() or not _safe_exists(self.map_pin_path):
             return True, f"Added {clean_ip} to XDP blocklist (shadow/dry-run mode)"
 
         # Write to pinned BPF hash map via bpftool
@@ -365,7 +375,7 @@ class EBPFBlocker:
             if clean_ip in self._shadow_map:
                 del self._shadow_map[clean_ip]
 
-        if not self.is_available() or not self.map_pin_path.exists():
+        if not self.is_available() or not _safe_exists(self.map_pin_path):
             return True, f"Removed {clean_ip} from XDP blocklist (shadow/dry-run mode)"
 
         key_hex = ip_to_hex_bytes(clean_ip)
@@ -396,7 +406,7 @@ class EBPFBlocker:
         stats: Dict[str, Dict[str, Any]] = {}
 
         # 1. If kernel BPF map is available, dump via bpftool
-        if self.is_available() and self.map_pin_path.exists():
+        if self.is_available() and _safe_exists(self.map_pin_path):
             try:
                 cmd = [self.bpftool_bin, "map", "dump", "pinned", str(self.map_pin_path), "-j"]
                 res = subprocess.run(cmd, capture_output=True, text=True, timeout=COMMAND_TIMEOUT)
@@ -432,7 +442,7 @@ class EBPFBlocker:
             cached_ips = list(self._shadow_map.keys())
             self._shadow_map.clear()
 
-        if self.is_available() and self.map_pin_path.exists():
+        if self.is_available() and _safe_exists(self.map_pin_path):
             for ip in cached_ips:
                 try:
                     self.remove_blocked_ip(ip)

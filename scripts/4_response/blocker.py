@@ -44,9 +44,12 @@ import shutil
 import re
 import json
 import time
+import logging
 from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Any
 import ipaddress
+
+logger = logging.getLogger("iotguard.blocker")
 
 import importlib
 

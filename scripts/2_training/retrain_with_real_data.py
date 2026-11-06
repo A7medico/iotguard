@@ -76,7 +76,7 @@ def _load_config() -> dict:
 
 
 def _to_binary_labels(series: pd.Series) -> np.ndarray:
-    if np.issubdtype(series.dtype, np.number):
+    if pd.api.types.is_numeric_dtype(series):
         return series.astype(int).to_numpy()
     s = series.astype(str)
     return (s.str.lower() != "benign").astype(int).to_numpy()

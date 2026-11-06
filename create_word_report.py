@@ -61,7 +61,7 @@ def create_final_report_doc():
     info = doc.add_paragraph()
     info.alignment = WD_ALIGN_PARAGRAPH.CENTER
     info.add_run('Project Repository: ').bold = True
-    info.add_run('https://github.com/A7medico/iotguard\n')
+    info.add_run('https://github.com/ahmadaymance/iotguard\n')
     info.add_run('Version: ').bold = True
     info.add_run('3.0.0 (Senior Project Final Production Release)\n')
     info.add_run('Date: ').bold = True

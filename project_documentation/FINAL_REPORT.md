@@ -2,7 +2,7 @@
 
 ## ML-Driven IoT Intrusion Detection System & Automated Edge Response
 
-**Project Repository:** [https://github.com/A7medico/iotguard](https://github.com/A7medico/iotguard)
+**Project Repository:** [https://github.com/ahmadaymance/iotguard](https://github.com/ahmadaymance/iotguard)
 
 **Version:** 3.0.0  
 **Date:** November 2026

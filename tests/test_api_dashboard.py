@@ -128,6 +128,16 @@ class TestAPIEndpoints:
         data = json.loads(response.data)
         assert isinstance(data, dict)
 
+    def test_api_config_get(self, app_client):
+        """Test GET /api/config returns active configuration."""
+        response = app_client.get("/api/config")
+        assert response.status_code == 200
+
+        data = json.loads(response.data)
+        assert isinstance(data, dict)
+        assert "decision" in data
+        assert "threshold" in data["decision"]
+
 
 class TestPrometheusMetrics:
     """Test Prometheus metrics endpoint."""

@@ -803,7 +803,7 @@ tbody tr.selected { background: rgba(59, 130, 246, 0.1); }
   pointer-events: none;
   transition: opacity 0.25s;
 }
-.modal-overlay.active { opacity: 1; pointer-events: auto; }
+.modal-overlay.active, .modal-overlay.open { opacity: 1; pointer-events: auto; }
 .modal {
   background: var(--surface);
   border: 1px solid var(--border2);
@@ -816,7 +816,7 @@ tbody tr.selected { background: rgba(59, 130, 246, 0.1); }
   transform: translateY(20px) scale(0.96);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.modal-overlay.active .modal { transform: translateY(0) scale(1); }
+.modal-overlay.active .modal, .modal-overlay.open .modal { transform: translateY(0) scale(1); }
 .modal-close {
   position: absolute;
   top: 16px;
@@ -1104,5 +1104,393 @@ tbody tr.selected { background: rgba(59, 130, 246, 0.1); }
   box-shadow: inset 0 0 12px rgba(239, 68, 68, 0.15), 0 0 8px rgba(239, 68, 68, 0.2);
   border-color: rgba(239, 68, 68, 0.5) !important;
 }
+
+/* ============================================================================
+   COMMERCIAL XDR / DARKTRACE COMMAND PALETTE (Ctrl+K)
+   ============================================================================ */
+.cmd-palette-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text3);
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  margin-right: 14px;
+}
+.cmd-palette-btn:hover {
+  background: rgba(30, 41, 59, 0.8);
+  border-color: var(--primary);
+  color: #f8fafc;
+  box-shadow: 0 0 16px rgba(6, 182, 212, 0.25);
+}
+.cmd-palette-btn kbd {
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-size: 10px;
+  font-family: monospace;
+  color: var(--text2);
+}
+
+.cmd-palette-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.82);
+  backdrop-filter: blur(8px);
+  z-index: 2500;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.cmd-palette-overlay.active {
+  opacity: 1;
+  pointer-events: auto;
+}
+.cmd-palette-modal {
+  width: 92%;
+  max-width: 620px;
+  background: #0f172a;
+  border: 1px solid rgba(6, 182, 212, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 30px rgba(6, 182, 212, 0.15);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transform: translateY(-10px) scale(0.98);
+  transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.cmd-palette-overlay.active .cmd-palette-modal {
+  transform: translateY(0) scale(1);
+}
+.cmd-search-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(15, 23, 42, 0.8);
+}
+.cmd-search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: #f8fafc;
+  font-size: 15px;
+  font-family: inherit;
+  outline: none;
+}
+.cmd-search-input::placeholder {
+  color: #64748b;
+}
+.cmd-results-list {
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 8px;
+}
+.cmd-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #64748b;
+  padding: 8px 10px 4px;
+}
+.cmd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 8px;
+  color: #cbd5e1;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.cmd-item:hover, .cmd-item.selected {
+  background: rgba(6, 182, 212, 0.15);
+  color: #fff;
+  border-left: 3px solid #06b6d4;
+  padding-left: 15px;
+}
+.cmd-item-icon {
+  font-size: 16px;
+  margin-right: 10px;
+  display: inline-flex;
+  align-items: center;
+}
+.cmd-item-meta {
+  font-size: 11px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+/* ============================================================================
+   NETWORK TOPOLOGY MAP ENHANCEMENTS: CONTROLS & SIDE DRAWER
+   ============================================================================ */
+.topo-canvas-container {
+  position: relative;
+  width: 100%;
+  height: 520px;
+  background: radial-gradient(circle at 50% 50%, #0d1527 0%, #080d1a 100%);
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.topo-canvas-container canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.topo-controls {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 10;
+}
+.topo-ctrl-btn {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #cbd5e1;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  backdrop-filter: blur(6px);
+}
+.topo-ctrl-btn:hover {
+  background: rgba(6, 182, 212, 0.3);
+  border-color: #06b6d4;
+  color: #fff;
+}
+.topo-legend-bar {
+  position: absolute;
+  bottom: 12px;
+  left: 14px;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  z-index: 10;
+  background: rgba(15, 23, 42, 0.75);
+  padding: 6px 12px;
+  border-radius: 20px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(6px);
+}
+.topo-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #94a3b8;
+}
+.topo-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.topo-side-drawer {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 360px;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(14px);
+  border-left: 1px solid rgba(6, 182, 212, 0.3);
+  box-shadow: -10px 0 25px rgba(0, 0, 0, 0.6);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  padding: 20px;
+  overflow-y: auto;
+}
+.topo-side-drawer.active {
+  transform: translateX(0);
+}
+.topo-drawer-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  background: none;
+  border: none;
+  color: #94a3b8;
+  font-size: 20px;
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+.topo-drawer-close:hover {
+  color: #fff;
+}
+
+/* ============================================================================
+   ENTERPRISE FLEET & EDGE SENSORS PAGE
+   ============================================================================ */
+.fleet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.fleet-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  padding: 18px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+.fleet-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(6, 182, 212, 0.4);
+  box-shadow: 0 12px 25px -5px rgba(0, 0, 0, 0.5), 0 0 15px rgba(6, 182, 212, 0.15);
+}
+.fleet-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+.fleet-gauge-row {
+  display: flex;
+  gap: 12px;
+  margin: 14px 0;
+}
+.fleet-gauge-box {
+  flex: 1;
+  background: rgba(2, 6, 23, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  padding: 10px;
+  text-align: center;
+}
+.fleet-gauge-val {
+  font-size: 18px;
+  font-weight: 800;
+  color: #f8fafc;
+  margin-top: 2px;
+}
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+}
+.sync-badge.synced {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+}
+.sync-badge.outdated {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  animation: pulseAmber 2s infinite;
+}
+@keyframes pulseAmber {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ============================================================================
+   GOVERNANCE & CRYPTOGRAPHIC AUDIT VERIFIER
+   ============================================================================ */
+.chain-verifier-panel {
+  background: radial-gradient(circle at 10% 20%, rgba(15, 23, 42, 0.9) 0%, rgba(2, 6, 23, 0.95) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.chain-stream-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  overflow-x: auto;
+  padding: 16px 8px;
+  margin: 16px 0;
+  scrollbar-width: thin;
+}
+.chain-block-item {
+  flex-shrink: 0;
+  width: 140px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 10px;
+  font-size: 11px;
+  transition: all 0.2s ease;
+  position: relative;
+}
+.chain-block-item.verified {
+  border-color: #10b981;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.2);
+}
+.chain-block-item.verifying {
+  border-color: #06b6d4;
+  box-shadow: 0 0 15px rgba(6, 182, 212, 0.4);
+  transform: scale(1.05);
+}
+.chain-link-arrow {
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* ============================================================================
+   SIEM & THREAT INTEL TERMINAL
+   ============================================================================ */
+.siem-terminal-window {
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+.siem-terminal-header {
+  background: #0f172a;
+  padding: 8px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.siem-terminal-body {
+  padding: 14px;
+  max-height: 340px;
+  overflow-y: auto;
+  color: #38bdf8;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
 
 

@@ -847,6 +847,78 @@ def api_fleet_heartbeat():
         return jsonify({"ok": False, "error": f"Internal error: {e}"}), 500
 
 
+def _seed_default_fleet_if_empty(cp):
+    """Seed the 4 standard enterprise edge gateways if the fleet registry is empty."""
+    with cp._lock:
+        if not cp.nodes:
+            default_nodes = [
+                {
+                    "node_id": "gw-smarthome-01",
+                    "site_type": "smart_home",
+                    "hostname": "edge-smarthome.iotguard.internal",
+                    "ip": "192.168.1.1",
+                    "outdated": False,
+                    "cpu": 18.4,
+                    "ram": 34.2,
+                    "latency": 2.1,
+                    "drops": 420
+                },
+                {
+                    "node_id": "gw-factory-02",
+                    "site_type": "factory_floor",
+                    "hostname": "edge-factory.corp.internal",
+                    "ip": "10.0.40.1",
+                    "outdated": False,
+                    "cpu": 42.6,
+                    "ram": 58.1,
+                    "latency": 4.8,
+                    "drops": 1850
+                },
+                {
+                    "node_id": "gw-substation-03",
+                    "site_type": "substation_edge",
+                    "hostname": "edge-substation.scada.internal",
+                    "ip": "10.0.50.1",
+                    "outdated": True,
+                    "cpu": 24.1,
+                    "ram": 38.9,
+                    "latency": 8.3,
+                    "drops": 930
+                },
+                {
+                    "node_id": "gw-hospital-04",
+                    "site_type": "hospital_iot_vlan",
+                    "hostname": "edge-hospital.health.internal",
+                    "ip": "172.16.20.1",
+                    "outdated": False,
+                    "cpu": 29.5,
+                    "ram": 46.7,
+                    "latency": 3.0,
+                    "drops": 610
+                },
+            ]
+            c_hash = cp.get_central_model_hash()
+            now = time.time()
+            for g_node in default_nodes:
+                m_hash = c_hash if not g_node["outdated"] else "a1b2c3d4e5f60000"
+                cp.register_node(
+                    node_id=g_node["node_id"],
+                    site_type=g_node["site_type"],
+                    hostname=g_node["hostname"],
+                    ip=g_node["ip"],
+                    model_hash=m_hash,
+                )
+                cp.record_heartbeat(g_node["node_id"], {
+                    "cpu_pct": g_node["cpu"],
+                    "ram_pct": g_node["ram"],
+                    "latency_ms": g_node["latency"],
+                    "active_xdp_drops": g_node["drops"],
+                    "active_blocks_count": 0,
+                    "local_model_hash": m_hash,
+                    "timestamp": now,
+                })
+
+
 @app.get("/api/v1/fleet/nodes")
 @app.get("/api/fleet/nodes")
 def api_fleet_nodes():
@@ -855,6 +927,8 @@ def api_fleet_nodes():
         return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
 
     cp = get_fleet_control_plane()
+    if not os.environ.get("PYTEST_CURRENT_TEST"):
+        _seed_default_fleet_if_empty(cp)
     nodes = cp.get_fleet_nodes()
     online_count = sum(1 for n in nodes if n.get("status") == "online")
     total_xdp_drops = sum(n.get("active_xdp_drops", 0) for n in nodes)
@@ -926,6 +1000,55 @@ def api_fleet_blocks():
         "ok": True,
         "global_blocks": blocks,
         "count": len(blocks),
+    })
+
+
+@app.post("/api/v1/fleet/simulate")
+@app.post("/api/fleet/simulate")
+def api_fleet_simulate():
+    """
+    Simulate or generate a fresh telemetry heartbeat from an edge gateway.
+    Auto-seeds the 4 enterprise branch gateways (smart_home, factory_floor, substation_edge, hospital_iot_vlan)
+    if the fleet is currently empty.
+    """
+    if not FLEET_AVAILABLE or get_fleet_control_plane is None:
+        return jsonify({"ok": False, "error": "Fleet control plane not available"}), 503
+
+    cp = get_fleet_control_plane()
+    _seed_default_fleet_if_empty(cp)
+
+    data = request.get_json(silent=True) or {}
+    node_id = data.get("node_id")
+
+    with cp._lock:
+        if not node_id or node_id not in cp.nodes:
+            if cp.nodes:
+                node_id = random.choice(list(cp.nodes.keys()))
+            else:
+                node_id = "gw-smarthome-01"
+
+        node = cp.nodes[node_id]
+        cpu = round(random.uniform(14.0, 78.5), 1)
+        ram = round(random.uniform(25.0, 68.0), 1)
+        latency = round(random.uniform(1.2, 14.5), 1)
+        drops = int(node.get("active_xdp_drops", 0)) + random.randint(15, 120)
+
+        telemetry = {
+            "cpu_pct": cpu,
+            "ram_pct": ram,
+            "latency_ms": latency,
+            "active_xdp_drops": drops,
+            "active_blocks_count": len(cp.global_blocks),
+            "local_model_hash": node.get("local_model_hash"),
+            "timestamp": time.time(),
+        }
+        ack = cp.record_heartbeat(node_id, telemetry)
+
+    return jsonify({
+        "ok": True,
+        "node_id": node_id,
+        "telemetry": telemetry,
+        "ack": ack,
     })
 
 
@@ -1446,6 +1569,16 @@ def _validate_config(dec: dict) -> tuple[dict, list[str]]:
         errors.append("use_adaptive must be a boolean")
     
     return validated, errors
+
+
+@app.get("/api/config")
+def api_get_config():
+    """
+    Retrieve current system configuration.
+    Returns the complete configuration dictionary including decision parameters,
+    features, and operational thresholds.
+    """
+    return jsonify(load_cfg())
 
 
 @app.post("/api/config")

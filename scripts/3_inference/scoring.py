@@ -19,7 +19,7 @@ import json
 import os
 import logging
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Union, List, Tuple, Dict, Any
 
 import numpy as np
 import pandas as pd
@@ -58,10 +58,11 @@ class ModelManager:
         self.models: dict = {}
         self.classes: Optional[dict] = None
 
-        # Unsupervised
+        # Unsupervised & Tri-Modal Zero-Day Engine
         self.unsup_model = None
         self.unsup_threshold: Optional[float] = None
         self.unsup_available: bool = False
+        self.zero_day_engine = None
 
         # Multi-class attack taxonomy model
         self.multiclass_model = None
@@ -163,15 +164,45 @@ class ModelManager:
             logger.warning(f"Could not load multiclass model: {e}")
             self.multiclass_available = False
 
-    # ── Unsupervised ─────────────────────────────────────────────────────
+    # ── Unsupervised & Tri-Modal Zero-Day Engine ────────────────────────
     def _load_unsupervised_model(self) -> None:
-        unsup_path = Path("models/unsup_isoforest.joblib")
-        unsup_meta = Path("models/unsup_meta.json")
         try:
-            if unsup_path.exists() and unsup_meta.exists():
-                self.unsup_model = load(unsup_path)
+            from zero_day_engine import build_or_load_zero_day_engine
+        except ImportError:
+            try:
+                import importlib
+                _zde = importlib.import_module("scripts.3_inference.zero_day_engine")
+                build_or_load_zero_day_engine = _zde.build_or_load_zero_day_engine
+            except Exception:
+                build_or_load_zero_day_engine = None
+
+        unsup_meta = Path("models/unsup_meta.json")
+        default_thr = 0.65
+        if unsup_meta.exists():
+            try:
                 meta = json.loads(unsup_meta.read_text(encoding="utf-8"))
-                self.unsup_threshold = float(meta.get("threshold", 0.0))
+                default_thr = float(meta.get("threshold", 0.65))
+            except Exception:
+                pass
+
+        if build_or_load_zero_day_engine is not None:
+            try:
+                self.zero_day_engine = build_or_load_zero_day_engine(threshold=default_thr)
+                self.unsup_model = self.zero_day_engine
+                self.unsup_threshold = default_thr
+                self.unsup_available = True
+                logger.info(
+                    f"Loaded Tri-Modal ZeroDayAnomalyEngine (threshold={self.unsup_threshold:.4f})"
+                )
+                return
+            except Exception as e:
+                logger.warning(f"Could not load ZeroDayAnomalyEngine, falling back to IsoForest: {e}")
+
+        unsup_path = Path("models/unsup_isoforest.joblib")
+        try:
+            if unsup_path.exists():
+                self.unsup_model = load(unsup_path)
+                self.unsup_threshold = default_thr
                 self.unsup_available = True
                 logger.info(
                     f"Loaded unsupervised model (threshold={self.unsup_threshold:.4f})"
@@ -294,22 +325,45 @@ def compute_unsupervised_score(
     x: pd.DataFrame,
     model,
     threshold: float,
-) -> tuple[float, bool]:
+    return_contributors: bool = False,
+) -> tuple[float, bool] | tuple[float, bool, list[tuple[str, float]]]:
     """
-    Compute anomaly score using the unsupervised IsolationForest model.
+    Compute anomaly score using the unsupervised IsolationForest model or
+    the Tri-Modal ZeroDayAnomalyEngine.
 
     Returns:
-        (anomaly_score, is_anomaly)
+        (anomaly_score, is_anomaly) if return_contributors is False
+        (anomaly_score, is_anomaly, anomaly_contributors) if return_contributors is True
     """
     if model is None or threshold is None:
+        if return_contributors:
+            return 0.0, False, []
         return 0.0, False
+
     try:
-        raw_score = model.score_samples(x.values)[0]
-        anomaly_score = -raw_score
-        is_anomaly = anomaly_score >= threshold
-        return float(anomaly_score), bool(is_anomaly)
+        # Check if model is ZeroDayAnomalyEngine or custom multi-detector
+        if hasattr(model, "score") and ("ZeroDayAnomalyEngine" in str(type(model)) or hasattr(model, "ecod")):
+            score, is_anom, contribs = model.score(x)
+            if return_contributors:
+                return float(score), bool(is_anom), contribs
+            return float(score), bool(is_anom)
+
+        # Standard scikit-learn IsolationForest
+        if hasattr(model, "score_samples"):
+            raw_score = model.score_samples(x.values)[0]
+            anomaly_score = -raw_score
+            is_anomaly = anomaly_score >= threshold
+            if return_contributors:
+                return float(anomaly_score), bool(is_anomaly), []
+            return float(anomaly_score), bool(is_anomaly)
+
+        if return_contributors:
+            return 0.0, False, []
+        return 0.0, False
     except Exception as e:
         logger.warning(f"Unsupervised scoring error: {e}")
+        if return_contributors:
+            return 0.0, False, []
         return 0.0, False
 
 
@@ -402,6 +456,26 @@ def compute_hybrid_decision(
 
 # ── Multiclass Inference & Taxonomy Mapping ─────────────────────────────────
 
+def compute_shannon_entropy(probs: Union[np.ndarray, list[float]], base: float = 2.0) -> tuple[float, float]:
+    """
+    Compute Shannon entropy H(p) = -sum(p_i * log(p_i)) and normalized entropy H_norm in [0, 1].
+
+    Returns:
+        (raw_entropy, normalized_entropy)
+    """
+    p = np.asarray(probs, dtype=float).ravel()
+    p = p[p > 0]
+    if len(p) <= 1:
+        return 0.0, 0.0
+    p = p / np.sum(p)
+    log_p = np.log2(p) if base == 2.0 else np.log(p) / np.log(base)
+    raw_h = -float(np.sum(p * log_p))
+    n_classes = len(probs)
+    max_h = float(np.log2(n_classes) if base == 2.0 else np.log(n_classes) / np.log(base))
+    norm_h = float(raw_h / max_h) if max_h > 0 else 0.0
+    return raw_h, float(np.clip(norm_h, 0.0, 1.0))
+
+
 def classify_multiclass(
     x: pd.DataFrame,
     model,
@@ -439,6 +513,10 @@ def infer_attack_taxonomy(
     multiclass_classes: Optional[list[str]] = None,
     heuristic_fallback: bool = True,
     drifting_features: Optional[list[str]] = None,
+    entropy_threshold: float = 0.70,
+    unsup_score: Optional[float] = None,
+    sup_score: Optional[float] = None,
+    anomaly_contributors: Optional[list[tuple[str, float]]] = None,
 ) -> tuple[str, float]:
     """
     Determine canonical attack taxonomy and confidence score.
@@ -446,7 +524,7 @@ def infer_attack_taxonomy(
     Tiers:
       1. Unsupervised-only -> ZeroDay-Anomaly
       2. Temporal Sequence Anomaly -> PortScan / DDoS-SYN / BruteForce based on drifting features
-      3. Multiclass ML classifier (models/multiclass.joblib) -> mapped to canonical taxonomy
+      3. Multiclass ML classifier (models/multiclass.joblib) + Shannon Entropy unknown threat detection
       4. Heuristic feature rules fallback -> mapped to canonical taxonomy
     """
     try:
@@ -477,10 +555,36 @@ def infer_attack_taxonomy(
 
     # 1. Evaluate multiclass model if available
     if multiclass_model is not None and multiclass_classes:
-        raw_pred, conf = classify_multiclass(x_df, multiclass_model, multiclass_classes)
-        if raw_pred.lower() != "benign":
-            canon = normalize_taxonomy(raw_pred, detection_source)
-            return canon, conf
+        try:
+            if hasattr(multiclass_model, "predict_proba"):
+                probs = multiclass_model.predict_proba(x_df)[0]
+                best_idx = int(np.argmax(probs))
+                raw_pred = multiclass_classes[best_idx] if 0 <= best_idx < len(multiclass_classes) else "unknown"
+                conf = float(probs[best_idx])
+
+                # Compute Shannon entropy
+                raw_h, norm_h = compute_shannon_entropy(probs)
+
+                # High-entropy unknown threat detection:
+                # If classifier is uncertain across known classes (H_norm >= entropy_threshold),
+                # automatically classify as ZeroDay-Anomaly.
+                if norm_h >= entropy_threshold and len(multiclass_classes) > 2:
+                    zero_day_conf = round(float(np.clip(max(0.85, 1.0 - float(np.min(probs))), 0.75, 0.98)), 4)
+                    logger.info(
+                        f"ZeroDay-Anomaly classified via Shannon entropy (H={raw_h:.3f}, H_norm={norm_h:.3f} >= {entropy_threshold:.2f})"
+                    )
+                    return "ZeroDay-Anomaly", zero_day_conf
+
+                if raw_pred.lower() != "benign":
+                    canon = normalize_taxonomy(raw_pred, detection_source)
+                    return canon, conf
+            else:
+                raw_pred, conf = classify_multiclass(x_df, multiclass_model, multiclass_classes)
+                if raw_pred.lower() != "benign":
+                    canon = normalize_taxonomy(raw_pred, detection_source)
+                    return canon, conf
+        except Exception as e:
+            logger.warning(f"Multiclass inference error: {e}")
 
     # 2. Heuristic fallback
     if heuristic_fallback:

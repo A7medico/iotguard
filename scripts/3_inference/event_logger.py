@@ -73,6 +73,7 @@ class EventLogger:
         temporal_score: Optional[float] = None,
         temporal_drifting: Optional[list[str]] = None,
         mitre: Optional[dict] = None,
+        anomaly_contributors: Optional[list] = None,
     ) -> dict:
         """Append a structured event to alerts.jsonl and emit via callback."""
         evt: dict[str, Any] = {
@@ -113,6 +114,11 @@ class EventLogger:
             evt["temporal_score"] = float(temporal_score)
         if temporal_drifting:
             evt["temporal_drifting"] = temporal_drifting
+        if anomaly_contributors:
+            evt["anomaly_contributors"] = [
+                {"feature": f, "contribution": float(c)} if isinstance(f, str) else dict(f)
+                for f, c in (anomaly_contributors if isinstance(anomaly_contributors[0], (tuple, list)) else [(x.get("feature", ""), x.get("contribution", 0.0)) for x in anomaly_contributors])
+            ] if anomaly_contributors else []
 
         # MITRE ATT&CK Enrichment
         if mitre is not None:

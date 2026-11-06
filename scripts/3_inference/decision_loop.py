@@ -270,18 +270,12 @@ def main() -> None:
 
         try:
             csv_mtime = DATA_CSV.stat().st_mtime
-            if fast_reader is not None:
-                batch, new_row_offset, new_byte_offset = fast_reader.read_new_rows(
-                    saved_row_offset=saved_row_offset,
-                    saved_byte_offset=saved_byte_offset,
-                )
-            else:
-                df = pd.read_csv(DATA_CSV)
-                if saved_row_offset > len(df):
-                    saved_row_offset = 0
-                batch = df.iloc[saved_row_offset:].copy()
-                new_row_offset = len(df)
-                new_byte_offset = 0
+            if fast_reader is None:
+                fast_reader = FastCSVStreamReader(DATA_CSV, mgr.features)
+            batch, new_row_offset, new_byte_offset = fast_reader.read_new_rows(
+                saved_row_offset=saved_row_offset,
+                saved_byte_offset=saved_byte_offset,
+            )
         except Exception as e:
             evt_logger.log_internal("read_error", "failed_to_read_features_csv", error=str(e))
             time.sleep(0.4)
@@ -363,12 +357,17 @@ def main() -> None:
             # 3. Unsupervised scoring (if enabled)
             unsup_score = 0.0
             unsup_is_anomaly = False
+            anomaly_contributors = []
             detection_source = "supervised"
 
             if mgr.unsup_available and policy.unsup_enabled:
-                unsup_score, unsup_is_anomaly = compute_unsupervised_score(
-                    x, mgr.unsup_model, mgr.unsup_threshold
+                unsup_res = compute_unsupervised_score(
+                    x, mgr.unsup_model, mgr.unsup_threshold, return_contributors=True
                 )
+                if isinstance(unsup_res, tuple) and len(unsup_res) == 3:
+                    unsup_score, unsup_is_anomaly, anomaly_contributors = unsup_res
+                else:
+                    unsup_score, unsup_is_anomaly = unsup_res
 
             # 4. Temporal Sequence Drift Evaluation (Phase 2 Upgrade)
             temporal_score = 0.0
@@ -447,6 +446,9 @@ def main() -> None:
                     multiclass_classes=getattr(mgr, "multiclass_classes", None),
                     heuristic_fallback=True,
                     drifting_features=temp_res.drifting_features if temp_res else None,
+                    unsup_score=unsup_score,
+                    sup_score=sup_score,
+                    anomaly_contributors=anomaly_contributors,
                 )
                 pred_label = attack_category
 
@@ -589,6 +591,9 @@ def main() -> None:
                         print(Fore.CYAN + f"   🎯 MITRE ATT&CK: {mitre_info.get('technique_id')} {mitre_info.get('technique_name')} [{mitre_info.get('tactic_name')}]" + Style.RESET_ALL)
             if detection_source == "unsupervised":
                 print(Fore.YELLOW + f"   🔶 Detected by unsupervised model (novel anomaly)" + Style.RESET_ALL)
+                if anomaly_contributors:
+                    top_contrib_str = ", ".join([f"{f}: {s:.2f}" for f, s in anomaly_contributors[:3]])
+                    print(Fore.YELLOW + f"   🧬 Anomaly Contributors (tail drift): {top_contrib_str}" + Style.RESET_ALL)
             if temp_res and temp_res.is_temporal_anomaly:
                 print(Fore.MAGENTA + f"   ⏱️  Temporal Sequence Drift: {temp_res.drifting_features} (score={temporal_score:.2f}, boost=+{temp_res.boost:.2f})" + Style.RESET_ALL)
 
@@ -610,6 +615,7 @@ def main() -> None:
                 temporal_score=temporal_score if policy.temporal_enabled else None,
                 temporal_drifting=temp_res.drifting_features if temp_res and temp_res.drifting_features else None,
                 mitre=playbook.get("mitre") if playbook else None,
+                anomaly_contributors=anomaly_contributors if (mgr.unsup_available and policy.unsup_enabled) else None,
             )
 
             # 14. Asynchronous Live SIEM Dispatch

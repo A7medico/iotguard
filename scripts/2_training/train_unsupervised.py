@@ -315,6 +315,26 @@ def main() -> None:
     print(f"Saved unsupervised model -> {args.model_out}")
     print(f"Saved meta              -> {args.meta_out}")
 
+    # ---------- Fit & Save Tri-Modal Zero-Day Engine (IsoForest + ECOD + PCA) ----------
+    try:
+        from scripts.3_inference.zero_day_engine import ZeroDayAnomalyEngine
+    except ImportError:
+        try:
+            from zero_day_engine import ZeroDayAnomalyEngine
+        except ImportError:
+            ZeroDayAnomalyEngine = None
+
+    if ZeroDayAnomalyEngine is not None:
+        try:
+            print("[*] Calibrating Tri-Modal Zero-Day Engine (IsoForest + ECOD + PCA)...")
+            z_engine = ZeroDayAnomalyEngine(features=feat_cols, threshold=0.65, isoforest=iso)
+            z_engine.fit(X_train)
+            z_path = Path(args.model_out).parent / "zero_day_engine.joblib"
+            z_engine.save(z_path)
+            print(f"Saved Tri-Modal Zero-Day Engine -> {z_path}")
+        except Exception as e:
+            print(f"[!] Warning: Could not export ZeroDayAnomalyEngine: {e}")
+
 
 if __name__ == "__main__":
     main()

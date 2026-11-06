@@ -340,10 +340,12 @@ class TestBlockerDriverHierarchy:
         from unittest.mock import patch
         from pathlib import Path
 
-        def fake_exists(path_obj):
-            if "bpf" in str(path_obj):
+        orig_exists = Path.exists
+
+        def fake_exists(*args, **kwargs):
+            if args and "bpf" in str(args[0]):
                 raise PermissionError(13, "Permission denied: '/sys/fs/bpf/iotguard_blocked_ips'")
-            return False
+            return orig_exists(*args, **kwargs)
 
         with patch.object(Path, "exists", side_effect=fake_exists):
             tel = blocker.get_driver_telemetry()

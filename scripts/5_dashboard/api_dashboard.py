@@ -2412,6 +2412,111 @@ def api_export_cef():
         headers={"Content-Disposition": "inline; filename=iotguard_alerts.cef"}
     )
 
+
+# ============================================================================
+# INCIDENT TIME-MACHINE & FORENSIC SNAPSHOT ENDPOINTS
+# ============================================================================
+
+@app.get("/api/v1/forensics/<int:event_index>")
+@app.get("/api/forensics/<int:event_index>")
+def api_forensic_snapshot(event_index: int):
+    """
+    Generate or retrieve a cryptographically signed Forensic Evidence Bundle for an event.
+    Returns:
+        JSON response with ok=True and complete forensic bundle including
+        sliding windows, SHAP attributions, zero-day contributors, MITRE mapping,
+        threat intel, and SHA-256 evidence signature.
+    """
+    try:
+        try:
+            from forensic_snapshot import get_forensic_snapshot, generate_forensic_snapshot
+        except ImportError:
+            import importlib
+            _fs_mod = importlib.import_module("scripts.4_response.forensic_snapshot")
+            get_forensic_snapshot = _fs_mod.get_forensic_snapshot
+            generate_forensic_snapshot = _fs_mod.generate_forensic_snapshot
+
+        # Look up existing or generate on demand
+        snapshot = get_forensic_snapshot(event_index)
+        if not snapshot:
+            ev = None
+            for alert in _iter_alerts() or []:
+                if alert.get("index") == event_index:
+                    ev = alert
+                    break
+            bundle = generate_forensic_snapshot(event_index=event_index, event_meta=ev)
+            snapshot = bundle.to_dict()
+
+        if not snapshot:
+            return jsonify({"ok": False, "error": f"Event {event_index} not found"}), 404
+
+        # Check for download request
+        if request.args.get("download") in ("1", "true", "yes"):
+            filename = f"forensic_evidence_event_{event_index}.json"
+            return Response(
+                json.dumps(snapshot, indent=2, sort_keys=True),
+                mimetype="application/json",
+                headers={"Content-Disposition": f"attachment; filename={filename}"}
+            )
+
+        return jsonify(snapshot)
+    except Exception as e:
+        logger.error(f"Error handling forensics snapshot for event {event_index}: {e}")
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.get("/api/v1/forensics")
+@app.get("/api/forensics")
+def api_list_forensics():
+    """List all available forensic snapshots generated across the system."""
+    try:
+        try:
+            from forensic_snapshot import list_forensic_snapshots
+        except ImportError:
+            import importlib
+            _fs_mod = importlib.import_module("scripts.4_response.forensic_snapshot")
+            list_forensic_snapshots = _fs_mod.list_forensic_snapshots
+
+        snapshots = list_forensic_snapshots()
+        return jsonify({
+            "ok": True,
+            "count": len(snapshots),
+            "snapshots": snapshots,
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+@app.post("/api/v1/forensics/<int:event_index>/verify")
+@app.post("/api/forensics/<int:event_index>/verify")
+def api_verify_forensic_snapshot(event_index: int):
+    """Verify cryptographic SHA-256 evidence integrity signature of a forensic bundle."""
+    try:
+        try:
+            import forensic_snapshot as fs_mod
+        except ImportError:
+            import importlib
+            fs_mod = importlib.import_module("scripts.4_response.forensic_snapshot")
+
+        file_path = fs_mod.FORENSICS_DIR / f"snapshot_{event_index}.json"
+        if not file_path.exists():
+            return jsonify({"ok": False, "error": f"Forensic snapshot for event {event_index} not found"}), 404
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            snapshot = json.load(f)
+
+        is_valid, reason = fs_mod.verify_bundle_integrity(snapshot)
+        return jsonify({
+            "ok": True,
+            "event_index": event_index,
+            "verified": is_valid,
+            "status": reason,
+            "sha256": snapshot.get("evidence_integrity", {}).get("sha256_hash"),
+            "audit_ledger_entry_hash": snapshot.get("evidence_integrity", {}).get("audit_ledger_entry_hash"),
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
 @app.get("/api/download.csv")
 def api_download_csv():
     if not ALERT_LOG.exists():

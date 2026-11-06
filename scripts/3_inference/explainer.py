@@ -194,6 +194,25 @@ class RealTimeExplainer:
         except Exception as e:
             return f"Explainer error: {str(e)}"
     
+    def get_contributions(self, row_df: pd.DataFrame) -> dict[str, float]:
+        """
+        Calculate per-feature SHAP impact values for a single row.
+        Returns a dictionary mapping feature_name -> shap_attribution_value.
+        """
+        if not self.explainer:
+            return {}
+        try:
+            shap_values = self.explainer.shap_values(row_df)
+            if isinstance(shap_values, list):
+                vals = shap_values[1][0] if len(shap_values) > 1 else shap_values[0][0]
+            elif len(shap_values.shape) == 3:
+                vals = shap_values[0, :, 1]
+            else:
+                vals = shap_values[0]
+            return {name: round(float(val), 4) for name, val in zip(self.feature_names, vals)}
+        except Exception:
+            return {}
+
     def cache_stats(self) -> dict:
         """Return cache statistics for monitoring."""
         return self._cache.stats()

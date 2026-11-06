@@ -71,6 +71,137 @@
     <!-- SHAP Feature Contributions -->
     <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🔍 Root Cause: Top Feature Contributions (SHAP XAI)</div>
     <div id="shap_bars"></div>
+
+    <!-- Time-Machine Launch Action -->
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;color:var(--text3)">Rewind attack trajectory across preceding sliding windows</span>
+      <button id="btn_open_tm_from_modal" onclick="openTimeMachineFromPlaybook()" style="background:linear-gradient(135deg,rgba(56,189,248,0.25),rgba(99,102,241,0.3));border:1px solid rgba(56,189,248,0.5);color:#38bdf8;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;transition:all .2s ease">
+        ⏱️ Open Incident Time-Machine
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- INCIDENT TIME-MACHINE & FORENSIC SNAPSHOT REPLAY MODAL -->
+<div class="modal-overlay" id="timemachine_modal">
+  <div class="modal" style="position:relative;max-width:960px;width:95%;max-height:92vh;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7)">
+    <button class="modal-close" onclick="closeTimeMachineModal()">&times;</button>
+    
+    <!-- Modal Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:24px">⏱️</span>
+          <h3 id="tm_title" style="margin:0;font-size:18px;color:#f8fafc">Incident Time-Machine Replay & Forensic Snapshot</h3>
+          <span id="tm_cat_badge" class="tag t-bad">DDoS-SYN</span>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px" id="tm_meta">
+          Loading event metadata...
+        </div>
+      </div>
+      
+      <!-- Top Actions: Download Button & Integrity Pill -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="tm_sig_badge" style="display:flex;align-items:center;gap:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);padding:5px 10px;border-radius:6px;font-size:11px;color:#34d399;font-family:monospace">
+          <span>🛡️</span> <span id="tm_sig_text">SHA-256 Signed</span>
+        </div>
+        <button id="btn_tm_download" onclick="downloadForensicEvidence()" style="background:linear-gradient(135deg,#0284c7,#2563eb);border:none;color:#ffffff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:0 4px 12px rgba(37,99,235,0.3);transition:all .2s">
+          📥 Download Signed Forensic Evidence (.json)
+        </button>
+      </div>
+    </div>
+
+    <!-- Interactive Time-Machine Controls & Scrubber -->
+    <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">Attack Rewind Scrubber:</span>
+          <span id="tm_window_label" style="font-size:12px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,0.15);padding:2px 8px;border-radius:4px">W-0 (Trigger Window)</span>
+        </div>
+        
+        <!-- Play / Step Controls -->
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="rewindTimeMachineToStart()" title="Rewind to beginning (W-8)" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">⏮️ Rewind</button>
+          <button onclick="stepTimeMachine(-1)" title="Previous Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">◀ Step</button>
+          <button id="btn_tm_play" onclick="toggleTimeMachinePlay()" title="Auto Play Replay" style="background:rgba(59,130,246,0.25);border:1px solid rgba(59,130,246,0.5);color:#60a5fa;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">▶ Play</button>
+          <button onclick="stepTimeMachine(1)" title="Next Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">Step ▶</button>
+          <button onclick="advanceTimeMachineToEnd()" title="Jump to Trigger Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">Trigger ⏭️</button>
+        </div>
+      </div>
+      
+      <!-- Slider Slider -->
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:11px;color:#64748b;font-weight:600">W-8 (Past)</span>
+        <input type="range" id="tm_scrubber" min="0" max="8" value="8" step="1" oninput="onTimeMachineScrub(parseInt(this.value))" style="flex:1;accent-color:#38bdf8;cursor:pointer">
+        <span style="font-size:11px;color:#ef4444;font-weight:600">W-0 (Block Trigger)</span>
+      </div>
+    </div>
+
+    <!-- Feature Evolution Timeline Chart -->
+    <div style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);display:flex;align-items:center;gap:6px">
+          <span>📈</span> Attack Trajectory Feature Evolution (K=8 Sliding Windows)
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;font-size:11px">
+          <span style="color:#38bdf8">● syn_ratio</span>
+          <span style="color:#fb7185">● rst_ratio</span>
+          <span style="color:#fbbf24">● flows</span>
+          <span style="color:#818cf8">● bytes_total</span>
+        </div>
+      </div>
+      <div style="height:190px;position:relative">
+        <canvas id="tm_evolution_chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Scrutinized Window 13-Feature Matrix -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+        <span>🔬 Scrutinized Window 13-Feature Vector (<span id="tm_features_window_name">Trigger Window</span>)</span>
+        <span style="font-size:11px;color:var(--text3)">Values update as you scrub timeline</span>
+      </div>
+      <div id="tm_features_grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px">
+        <!-- Populated via JS -->
+      </div>
+    </div>
+
+    <!-- Forensic Analysis Panels: SHAP + Zero-Day + MITRE -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <!-- Left: SHAP Attributions -->
+      <div style="background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px">
+        <div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+          <span>🔍</span> SHAP Root Cause Contributions
+        </div>
+        <div id="tm_shap_container" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Right: Zero-Day & Novelty -->
+      <div style="background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:#f59e0b;display:flex;align-items:center;gap:6px">
+            <span>☣️</span> Zero-Day Tail Anomaly Contributors
+          </div>
+          <span id="tm_zeroday_badge" class="tag t-warn" style="font-size:10px">Novelty: 0%</span>
+        </div>
+        <div id="tm_zeroday_container" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- Playbook & Firewall Rule -->
+    <div style="margin-top:14px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:#f87171;display:flex;align-items:center;gap:6px">
+          <span>🛡️</span> MITRE ATT&CK & Recommended Firewall Rule
+        </div>
+        <span id="tm_mitre_tag" style="font-size:11px;color:#94a3b8;font-family:monospace">T1498.001 (Direct Network Flood)</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+        <code id="tm_firewall_rule" style="flex:1;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);padding:6px 8px;border-radius:6px;font-size:11px;color:#38bdf8;font-family:monospace;word-break:break-all"></code>
+        <button onclick="copyTimeMachineFirewallRule()" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:11px">Copy</button>
+      </div>
+    </div>
+
   </div>
 </div>
 
@@ -839,8 +970,12 @@ function rowHtml(e) {
     ? `<div style="display:flex;align-items:center;gap:6px">
          ${catBadge(cat, sev)}
          <button onclick="event.stopPropagation();openShapModal(${e.index})" title="View Remediation Playbook" style="background:rgba(99,130,190,0.18);border:1px solid rgba(99,130,190,0.35);color:#cbd5e1;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">📋 Playbook</button>
+         <button onclick="event.stopPropagation();openTimeMachineModal(${e.index})" title="Open Incident Time-Machine Replay" style="background:rgba(56,189,248,0.18);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">⏱️ Time-Machine</button>
        </div>`
-    : '<span class="tag t-good">Benign</span>';
+    : `<div style="display:flex;align-items:center;gap:6px">
+         <span class="tag t-good">Benign</span>
+         <button onclick="event.stopPropagation();openTimeMachineModal(${e.index})" title="Open Incident Time-Machine Replay" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">⏱️ Replay</button>
+       </div>`;
 
   return `<tr onclick="openShapModal(${e.index})" title="Click for Remediation Playbook & SHAP detail" style="cursor:pointer">
     <td>${iso(e.ts)}</td><td>${e.index}</td>${scoreCell(e.score??0)}<td>${stateTag(e.state)}</td>
@@ -862,7 +997,14 @@ function renderTable(){
 function toggleExpand(){const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');w.classList.toggle('expanded');b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events'}
 
 // --- REMEDIATION PLAYBOOK & SHAP MODAL ---
+let currentModalEventIndex = 0;
+let currentTimeMachineBundle = null;
+let currentTimeMachineIndex = 8;
+let tmEvolutionChart = null;
+let tmPlayInterval = null;
+
 async function openShapModal(index) {
+  currentModalEventIndex = index;
   const overlay = document.getElementById('shap_modal');
   const ev = allEvents.find(e => e.index === index) || {};
   const isAtk = ev.state === 'ATTACK';
@@ -935,6 +1077,399 @@ function copyFirewallRule() {
     showToast('info', '📋 Firewall rule copied to clipboard');
   }
 }
+
+// --- INCIDENT TIME-MACHINE & FORENSIC SNAPSHOT REPLAY ---
+function openTimeMachineFromPlaybook() {
+  closeShapModal();
+  openTimeMachineModal(currentModalEventIndex);
+}
+
+async function openTimeMachineModal(eventIndex) {
+  currentModalEventIndex = eventIndex;
+  const overlay = document.getElementById('timemachine_modal');
+  if (!overlay) return;
+  
+  overlay.classList.add('active');
+  document.getElementById('tm_meta').textContent = `Loading forensic evidence package for event #${eventIndex}...`;
+  document.getElementById('tm_shap_container').innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px;font-size:12px">Extracting SHAP feature attributions...</div>';
+  document.getElementById('tm_zeroday_container').innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px;font-size:12px">Analyzing Zero-Day statistical tail deviations...</div>';
+
+  try {
+    const res = await fetch(`/api/v1/forensics/${eventIndex}`);
+    const bundle = await res.json();
+    if (!bundle.ok) {
+      showToast('error', bundle.error || 'Failed to load forensic evidence bundle');
+      return;
+    }
+    
+    currentTimeMachineBundle = bundle;
+    const trig = bundle.trigger_event || {};
+    const cat = trig.attack_category || trig.pred_class || 'Attack Anomaly';
+    const scoreVal = trig.score ?? 0;
+    const scoreColor = scoreVal >= 0.7 ? '#ef4444' : '#10b981';
+    
+    // Header
+    document.getElementById('tm_title').textContent = `Incident Time-Machine — Event #${eventIndex}`;
+    const catBadgeEl = document.getElementById('tm_cat_badge');
+    catBadgeEl.textContent = cat;
+    catBadgeEl.className = 'tag ' + (scoreVal >= 0.7 ? 't-bad' : 't-warn');
+    
+    const srcIp = trig.src_ip || (bundle.threat_intel && bundle.threat_intel.ip) || 'Unknown';
+    const flag = (bundle.threat_intel && bundle.threat_intel.flag) || '🏠';
+    const country = (bundle.threat_intel && bundle.threat_intel.country) || 'LAN';
+    const timeStr = bundle.iso_timestamp || new Date().toISOString();
+    
+    document.getElementById('tm_meta').innerHTML = `
+      Timestamp: <strong>${timeStr}</strong> · 
+      Target IP: <code>${srcIp}</code> (${flag} ${country}) · 
+      Score: <strong style="color:${scoreColor}">${(scoreVal * 100).toFixed(1)}%</strong> · 
+      Action: <span class="tag t-bad">${trig.action || 'BLOCK'}</span> · 
+      Bundle ID: <code>${bundle.bundle_id}</code>
+    `;
+    
+    // Integrity Signature Badge
+    const sigHash = (bundle.evidence_integrity && bundle.evidence_integrity.sha256_hash) || '';
+    document.getElementById('tm_sig_text').textContent = sigHash ? `SHA-256: ${sigHash.slice(0, 12)}...` : 'Cryptographically Signed';
+    
+    // Render Feature Evolution Chart
+    renderTimeMachineEvolutionChart(bundle.replay_timeline || []);
+    
+    // Render Scrubber
+    const timeline = bundle.replay_timeline || [];
+    const maxIdx = Math.max(0, timeline.length - 1);
+    const scrubber = document.getElementById('tm_scrubber');
+    scrubber.max = maxIdx;
+    scrubber.value = maxIdx;
+    currentTimeMachineIndex = maxIdx;
+    
+    // Render Selected Window Details
+    renderTimeMachineWindow(maxIdx);
+    
+    // Render SHAP Attributions Panel
+    renderTimeMachineShap(bundle.shap_attributions);
+    
+    // Render Zero-Day Tail Analysis Panel
+    renderTimeMachineZeroDay(bundle.zero_day_analysis);
+    
+    // Render Playbook & MITRE
+    const pb = bundle.remediation_playbook || {};
+    const mitre = bundle.mitre_attack || pb.mitre || {};
+    document.getElementById('tm_mitre_tag').textContent = mitre.technique_id ? `${mitre.technique_id}: ${mitre.technique_name} [${mitre.tactic_name}]` : 'T1498.001: Direct Network Flood [Impact]';
+    document.getElementById('tm_firewall_rule').textContent = pb.firewall_rule || `netsh advfirewall firewall add rule name="IoTGuard_Block_${srcIp}" dir=in action=block remoteip=${srcIp}`;
+
+  } catch(err) {
+    console.error('Time-machine loading error:', err);
+    showToast('error', 'Error connecting to forensics API: ' + err.message);
+  }
+}
+
+function closeTimeMachineModal() {
+  const overlay = document.getElementById('timemachine_modal');
+  if (overlay) overlay.classList.remove('active');
+  if (tmPlayInterval) {
+    clearInterval(tmPlayInterval);
+    tmPlayInterval = null;
+    const btn = document.getElementById('btn_tm_play');
+    if (btn) btn.textContent = '▶ Play';
+  }
+}
+
+function renderTimeMachineEvolutionChart(timeline) {
+  const canvas = document.getElementById('tm_evolution_chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  if (tmEvolutionChart) {
+    tmEvolutionChart.destroy();
+    tmEvolutionChart = null;
+  }
+  
+  const labels = timeline.map(w => w.relative_label || `W${w.relative_window}`);
+  const synData = timeline.map(w => w.key_metrics ? w.key_metrics.syn_ratio : (w.features ? w.features.syn_ratio : 0));
+  const rstData = timeline.map(w => w.key_metrics ? w.key_metrics.rst_ratio : (w.features ? w.features.rst_ratio : 0));
+  const flowData = timeline.map(w => w.key_metrics ? w.key_metrics.flows : (w.features ? w.features.flows : 0));
+  const byteData = timeline.map(w => w.key_metrics ? (w.key_metrics.bytes_total / 1000.0) : (w.features ? w.features.bytes_total / 1000.0 : 0));
+  
+  tmEvolutionChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'syn_ratio',
+          data: synData,
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,0.1)',
+          borderWidth: 2.5,
+          tension: 0.3,
+          yAxisID: 'y_ratio',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        },
+        {
+          label: 'rst_ratio',
+          data: rstData,
+          borderColor: '#fb7185',
+          backgroundColor: 'rgba(251,113,133,0.08)',
+          borderWidth: 2,
+          tension: 0.3,
+          yAxisID: 'y_ratio',
+          pointRadius: 3,
+        },
+        {
+          label: 'flows',
+          data: flowData,
+          borderColor: '#fbbf24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [4, 4],
+          tension: 0.2,
+          yAxisID: 'y_volume',
+          pointRadius: 3,
+        },
+        {
+          label: 'KB_total',
+          data: byteData,
+          borderColor: '#818cf8',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [2, 2],
+          tension: 0.2,
+          yAxisID: 'y_volume',
+          pointRadius: 3,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15,23,42,0.95)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 1,
+          titleColor: '#f8fafc',
+          bodyColor: '#cbd5e1',
+          padding: 10,
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#94a3b8', font: { size: 10 } }
+        },
+        y_ratio: {
+          type: 'linear',
+          position: 'left',
+          min: 0,
+          max: 1.0,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#38bdf8', font: { size: 10 } },
+          title: { display: true, text: 'Ratios (0.0 - 1.0)', color: '#38bdf8', font: { size: 10 } }
+        },
+        y_volume: {
+          type: 'linear',
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#fbbf24', font: { size: 10 } },
+          title: { display: true, text: 'Flows / Volume (KB)', color: '#fbbf24', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+function onTimeMachineScrub(windowIdx) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const clamped = Math.max(0, Math.min(timeline.length - 1, windowIdx));
+  currentTimeMachineIndex = clamped;
+  
+  const w = timeline[clamped];
+  const labelEl = document.getElementById('tm_window_label');
+  const featWindowEl = document.getElementById('tm_features_window_name');
+  
+  if (w.is_trigger) {
+    labelEl.textContent = 'W-0 (Trigger Window — Block Executed)';
+    labelEl.style.color = '#ef4444';
+    labelEl.style.background = 'rgba(239,68,68,0.15)';
+    featWindowEl.textContent = 'Trigger Window (Block Executed)';
+  } else {
+    const diff = Math.abs(w.relative_window || (clamped - (timeline.length - 1)));
+    labelEl.textContent = `Window ${w.relative_label || 'W-' + diff} (${diff} windows before block)`;
+    labelEl.style.color = '#38bdf8';
+    labelEl.style.background = 'rgba(56,189,248,0.15)';
+    featWindowEl.textContent = `Sliding Window ${w.relative_label || 'W-' + diff}`;
+  }
+  
+  renderTimeMachineWindow(clamped);
+}
+
+function renderTimeMachineWindow(windowIdx) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const w = timeline[windowIdx] || {};
+  const feats = w.features || {};
+  
+  const grid = document.getElementById('tm_features_grid');
+  if (!grid) return;
+  
+  const keys = [
+    'flows', 'bytes_total', 'pkts_total', 'syn_ratio',
+    'mean_bytes_flow', 'ack_ratio', 'fin_ratio', 'rst_ratio',
+    'http_ratio', 'tcp_ratio', 'protocol_diversity', 'std_bytes', 'iat_mean'
+  ];
+  
+  grid.innerHTML = keys.map(k => {
+    const val = feats[k] !== undefined ? feats[k] : 0.0;
+    let isElevated = false;
+    if (k === 'syn_ratio' && val > 0.5) isElevated = true;
+    if (k === 'rst_ratio' && val > 0.1) isElevated = true;
+    if (k === 'flows' && val > 50) isElevated = true;
+    if (k === 'bytes_total' && val > 20000) isElevated = true;
+    
+    const cardBg = isElevated ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.03)';
+    const cardBorder = isElevated ? 'rgba(239,68,68,0.35)' : 'rgba(255,255,255,0.08)';
+    const valColor = isElevated ? '#f87171' : '#f1f5f9';
+    
+    const formattedVal = (typeof val === 'number')
+      ? (val >= 1000 ? val.toLocaleString() : (val % 1 !== 0 ? val.toFixed(3) : val))
+      : val;
+      
+    return `<div style="background:${cardBg};border:1px solid ${cardBorder};border-radius:6px;padding:8px 10px">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:600">${k}</div>
+      <div style="font-size:14px;font-weight:700;color:${valColor};margin-top:2px;font-family:monospace">${formattedVal}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeMachineShap(shapData) {
+  const container = document.getElementById('tm_shap_container');
+  if (!container) return;
+  if (!shapData || !shapData.ranked_contributors || !shapData.ranked_contributors.length) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">No SHAP attributions recorded</div>';
+    return;
+  }
+  
+  const contribs = shapData.ranked_contributors.slice(0, 6);
+  const maxAbs = Math.max(...contribs.map(c => Math.abs(c.contribution)), 0.05);
+  
+  container.innerHTML = contribs.map(c => {
+    const pct = Math.min(100, (Math.abs(c.contribution) / maxAbs) * 100);
+    const isPos = c.contribution > 0;
+    const barColor = isPos ? '#38bdf8' : '#94a3b8';
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px">
+      <div style="width:90px;color:var(--text2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.feature}</div>
+      <div style="flex:1;background:rgba(255,255,255,0.05);height:6px;border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;background:${barColor};height:100%;border-radius:3px"></div>
+      </div>
+      <div style="width:45px;text-align:right;font-family:monospace;font-weight:700;color:${isPos ? '#38bdf8' : '#94a3b8'}">${isPos ? '+' : ''}${c.contribution.toFixed(3)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeMachineZeroDay(zeroDayData) {
+  const container = document.getElementById('tm_zeroday_container');
+  const badge = document.getElementById('tm_zeroday_badge');
+  if (!container) return;
+  
+  if (!zeroDayData) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">No Zero-Day tail deviations detected</div>';
+    return;
+  }
+  
+  const prob = zeroDayData.tail_probability || 0.0;
+  if (badge) {
+    badge.textContent = `Tail Prob: ${(prob * 100).toFixed(0)}%`;
+    badge.className = 'tag ' + (zeroDayData.is_novel_anomaly ? 't-bad' : 't-warn');
+  }
+  
+  const items = zeroDayData.tail_contributors || [];
+  if (!items.length) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">All flow features fall within 1.5σ baseline distribution</div>';
+    return;
+  }
+  
+  container.innerHTML = items.map(it => {
+    const isCrit = it.severity === 'CRITICAL_TAIL';
+    const tagClass = isCrit ? 't-bad' : 't-warn';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.02)">
+      <div>
+        <span style="font-size:11px;font-weight:600;color:#f8fafc">${it.feature}</span>
+        <span style="font-size:10px;color:var(--text3);margin-left:4px">val=${it.current_value} (μ=${it.baseline_mean})</span>
+      </div>
+      <span class="tag ${tagClass}" style="font-size:9px;font-family:monospace">${it.z_score >= 0 ? '+' : ''}${it.z_score}σ</span>
+    </div>`;
+  }).join('');
+}
+
+function stepTimeMachine(delta) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const next = Math.max(0, Math.min(timeline.length - 1, currentTimeMachineIndex + delta));
+  document.getElementById('tm_scrubber').value = next;
+  onTimeMachineScrub(next);
+}
+
+function rewindTimeMachineToStart() {
+  document.getElementById('tm_scrubber').value = 0;
+  onTimeMachineScrub(0);
+}
+
+function advanceTimeMachineToEnd() {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const end = currentTimeMachineBundle.replay_timeline.length - 1;
+  document.getElementById('tm_scrubber').value = end;
+  onTimeMachineScrub(end);
+}
+
+function toggleTimeMachinePlay() {
+  const btn = document.getElementById('btn_tm_play');
+  if (tmPlayInterval) {
+    clearInterval(tmPlayInterval);
+    tmPlayInterval = null;
+    if (btn) btn.textContent = '▶ Play';
+  } else {
+    if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+    const maxIdx = currentTimeMachineBundle.replay_timeline.length - 1;
+    if (currentTimeMachineIndex >= maxIdx) {
+      currentTimeMachineIndex = 0;
+      document.getElementById('tm_scrubber').value = 0;
+      onTimeMachineScrub(0);
+    }
+    if (btn) btn.textContent = '⏸ Pause';
+    tmPlayInterval = setInterval(() => {
+      if (currentTimeMachineIndex >= maxIdx) {
+        clearInterval(tmPlayInterval);
+        tmPlayInterval = null;
+        if (btn) btn.textContent = '▶ Play';
+      } else {
+        stepTimeMachine(1);
+      }
+    }, 700);
+  }
+}
+
+function downloadForensicEvidence() {
+  if (!currentModalEventIndex && currentModalEventIndex !== 0) return;
+  window.open(`/api/v1/forensics/${currentModalEventIndex}?download=true`, '_blank');
+  showToast('good', `Forensic Evidence Bundle for event #${currentModalEventIndex} downloaded`);
+}
+
+function copyTimeMachineFirewallRule() {
+  const code = document.getElementById('tm_firewall_rule');
+  if (code && navigator.clipboard) {
+    navigator.clipboard.writeText(code.textContent);
+    showToast('info', '📋 Firewall rule copied to clipboard');
+  }
+}
+
+// Close on outside click
+document.getElementById('timemachine_modal')?.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeTimeMachineModal();
+});
 
 // --- CHARTS SETUP ---
 function setupCharts() {

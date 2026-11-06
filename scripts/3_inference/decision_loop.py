@@ -41,6 +41,7 @@ Key outputs
 -----------------------------------------------------------------------------
 """
 import os, time, json, sys
+from collections import deque
 from typing import Optional, Dict, Any, List, Tuple
 from pathlib import Path
 import pandas as pd
@@ -245,6 +246,7 @@ def main() -> None:
     state = evt_logger.load_state()
     recent = [0] * policy.window
     adaptive_history: list[float] = []
+    recent_windows_buffer: deque = deque(maxlen=16)
     last_block_t = 0.0
     last_idle_print = 0.0
     last_health_write = 0.0
@@ -529,6 +531,38 @@ def main() -> None:
                         src_ip=ip_to_block,
                     )
 
+                # Auto Forensic Incident Snapshot Generation for HARD and KILL blocks
+                if str(response_type).lower() in ("hard", "kill"):
+                    try:
+                        try:
+                            from forensic_snapshot import generate_and_save_snapshot
+                        except ImportError:
+                            import importlib
+                            _fs_mod = importlib.import_module("scripts.4_response.forensic_snapshot")
+                            generate_and_save_snapshot = _fs_mod.generate_and_save_snapshot
+
+                        snap = generate_and_save_snapshot(
+                            event_index=int(idx),
+                            trigger_row=row.to_dict() if hasattr(row, "to_dict") else dict(row),
+                            preceding_windows=list(recent_windows_buffer),
+                            event_meta={
+                                "index": int(idx),
+                                "score": float(p),
+                                "state": state_txt,
+                                "action": action,
+                                "attack_category": attack_category,
+                                "pred_class": pred_label,
+                                "src_ip": ip_to_block,
+                                "threat": threat_ctx,
+                                "reason": reason_str,
+                                "remediation_playbook": playbook,
+                            },
+                        )
+                        if snap:
+                            print(Fore.CYAN + f"   📦 Forensic Snapshot Auto-Generated: {snap.get('bundle_id')} (SHA-256: {snap.get('evidence_integrity', {}).get('sha256_hash', '')[:12]}...)" + Style.RESET_ALL)
+                    except Exception as e:
+                        logger.warning(f"Could not auto-generate forensic snapshot: {e}")
+
             # 12. Console output
             color = Fore.RED if is_attack else Fore.GREEN
             thr_str = f"{effective_thr:.3f}" if policy.use_adaptive else f"{policy.threshold:.2f}"
@@ -586,6 +620,12 @@ def main() -> None:
             ):
                 if is_attack or action != "NONE" or p >= 0.80:
                     siem_dispatcher.enqueue(logged_evt)
+
+            # 15. Track sliding window feature vector for temporal forensics
+            recent_windows_buffer.append({
+                "window_index": int(idx),
+                "features": {c: float(row.get(c, 0.0)) for c in mgr.features},
+            })
 
         if now - last_health_write > 2.0:
             evt_logger.write_health(now, state, cfg_mtime, policy.dry_run)

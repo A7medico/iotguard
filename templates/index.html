@@ -1,0 +1,2406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<title>IoTGuard — Cybersecurity Command Center</title>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="description" content="IoTGuard Real-time ML-Driven IoT Intrusion Detection System — Security Operations Dashboard"/>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='28' font-size='28'>🛡️</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+<link rel="stylesheet" href="/static/dashboard.css?v=4.0.1">
+</head>
+<body>
+
+<!-- TOAST NOTIFICATIONS -->
+<div class="toast-container" id="toast_container"></div>
+
+<!-- REMEDIATION PLAYBOOK & SHAP XAI MODAL -->
+<div class="modal-overlay" id="shap_modal">
+  <div class="modal" style="position:relative;max-width:700px;width:92%;max-height:90vh;overflow-y:auto">
+    <button class="modal-close" onclick="closeShapModal()">&times;</button>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px">
+      <h3 id="shap_title" style="margin:0">🛡️ Remediation Playbook & SHAP XAI</h3>
+      <span id="modal_cat_badge" style="display:none"></span>
+    </div>
+    <div style="font-size:12px;color:var(--text3);margin-bottom:14px">
+      <span id="shap_meta"></span>
+    </div>
+
+    <!-- Structured Playbook Card -->
+    <div id="playbook_card" style="display:none;background:rgba(239,68,68,0.06);border:1px solid rgba(239,68,68,0.25);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <div style="font-weight:700;font-size:13px;color:#f87171;display:flex;align-items:center;gap:6px">
+          <span>📋</span> <span id="pb_title">Automated Remediation Playbook</span>
+        </div>
+        <span id="pb_severity" class="tag t-bad" style="font-size:10px;font-weight:700">CRITICAL</span>
+      </div>
+      
+      <div style="margin-bottom:8px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Recommended Action:</div>
+        <div id="pb_action" style="font-size:13px;color:#f1f5f9;margin-top:2px;font-weight:500"></div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Port Restrictions:</div>
+          <div id="pb_ports" style="font-size:12px;color:#cbd5e1;margin-top:2px"></div>
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Rate Limit Policy:</div>
+          <div id="pb_ratelimit" style="font-size:12px;color:#cbd5e1;margin-top:2px"></div>
+        </div>
+      </div>
+
+      <div style="margin-bottom:10px">
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Enforcement Firewall Rule:</div>
+        <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+          <code id="pb_rule" style="flex:1;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);padding:6px 8px;border-radius:6px;font-size:11px;color:#38bdf8;font-family:monospace;word-break:break-all"></code>
+          <button onclick="copyFirewallRule()" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:11px">Copy</button>
+        </div>
+      </div>
+
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Deep Forensic Payload Hint:</div>
+        <div id="pb_hint" style="font-size:12px;color:#94a3b8;font-style:italic;margin-top:2px"></div>
+      </div>
+    </div>
+
+    <!-- SHAP Feature Contributions -->
+    <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:8px">🔍 Root Cause: Top Feature Contributions (SHAP XAI)</div>
+    <div id="shap_bars"></div>
+
+    <!-- Time-Machine Launch Action -->
+    <div style="margin-top:16px;padding-top:12px;border-top:1px solid rgba(255,255,255,0.08);display:flex;justify-content:space-between;align-items:center">
+      <span style="font-size:11px;color:var(--text3)">Rewind attack trajectory across preceding sliding windows</span>
+      <button id="btn_open_tm_from_modal" onclick="openTimeMachineFromPlaybook()" style="background:linear-gradient(135deg,rgba(56,189,248,0.25),rgba(99,102,241,0.3));border:1px solid rgba(56,189,248,0.5);color:#38bdf8;padding:7px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;transition:all .2s ease">
+        ⏱️ Open Incident Time-Machine
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- INCIDENT TIME-MACHINE & FORENSIC SNAPSHOT REPLAY MODAL -->
+<div class="modal-overlay" id="timemachine_modal">
+  <div class="modal" style="position:relative;max-width:960px;width:95%;max-height:92vh;overflow-y:auto;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;padding:22px;box-shadow:0 25px 50px -12px rgba(0,0,0,0.7)">
+    <button class="modal-close" onclick="closeTimeMachineModal()">&times;</button>
+    
+    <!-- Modal Header -->
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+      <div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span style="font-size:24px">⏱️</span>
+          <h3 id="tm_title" style="margin:0;font-size:18px;color:#f8fafc">Incident Time-Machine Replay & Forensic Snapshot</h3>
+          <span id="tm_cat_badge" class="tag t-bad">DDoS-SYN</span>
+        </div>
+        <div style="font-size:12px;color:var(--text3);margin-top:4px" id="tm_meta">
+          Loading event metadata...
+        </div>
+      </div>
+      
+      <!-- Top Actions: Download Button & Integrity Pill -->
+      <div style="display:flex;align-items:center;gap:10px">
+        <div id="tm_sig_badge" style="display:flex;align-items:center;gap:6px;background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.35);padding:5px 10px;border-radius:6px;font-size:11px;color:#34d399;font-family:monospace">
+          <span>🛡️</span> <span id="tm_sig_text">SHA-256 Signed</span>
+        </div>
+        <button id="btn_tm_download" onclick="downloadForensicEvidence()" style="background:linear-gradient(135deg,#0284c7,#2563eb);border:none;color:#ffffff;padding:8px 14px;border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;box-shadow:0 4px 12px rgba(37,99,235,0.3);transition:all .2s">
+          📥 Download Signed Forensic Evidence (.json)
+        </button>
+      </div>
+    </div>
+
+    <!-- Interactive Time-Machine Controls & Scrubber -->
+    <div style="background:rgba(15,23,42,0.7);border:1px solid rgba(255,255,255,0.08);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span style="font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px">Attack Rewind Scrubber:</span>
+          <span id="tm_window_label" style="font-size:12px;font-weight:700;color:#38bdf8;background:rgba(56,189,248,0.15);padding:2px 8px;border-radius:4px">W-0 (Trigger Window)</span>
+        </div>
+        
+        <!-- Play / Step Controls -->
+        <div style="display:flex;align-items:center;gap:6px">
+          <button onclick="rewindTimeMachineToStart()" title="Rewind to beginning (W-8)" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">⏮️ Rewind</button>
+          <button onclick="stepTimeMachine(-1)" title="Previous Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">◀ Step</button>
+          <button id="btn_tm_play" onclick="toggleTimeMachinePlay()" title="Auto Play Replay" style="background:rgba(59,130,246,0.25);border:1px solid rgba(59,130,246,0.5);color:#60a5fa;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;font-weight:600">▶ Play</button>
+          <button onclick="stepTimeMachine(1)" title="Next Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">Step ▶</button>
+          <button onclick="advanceTimeMachineToEnd()" title="Jump to Trigger Window" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#cbd5e1;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:11px">Trigger ⏭️</button>
+        </div>
+      </div>
+      
+      <!-- Slider Slider -->
+      <div style="display:flex;align-items:center;gap:12px">
+        <span style="font-size:11px;color:#64748b;font-weight:600">W-8 (Past)</span>
+        <input type="range" id="tm_scrubber" min="0" max="8" value="8" step="1" oninput="onTimeMachineScrub(parseInt(this.value))" style="flex:1;accent-color:#38bdf8;cursor:pointer">
+        <span style="font-size:11px;color:#ef4444;font-weight:600">W-0 (Block Trigger)</span>
+      </div>
+    </div>
+
+    <!-- Feature Evolution Timeline Chart -->
+    <div style="background:rgba(15,23,42,0.5);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:14px;margin-bottom:18px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div style="font-size:12px;font-weight:700;color:var(--text2);display:flex;align-items:center;gap:6px">
+          <span>📈</span> Attack Trajectory Feature Evolution (K=8 Sliding Windows)
+        </div>
+        <div style="display:flex;align-items:center;gap:12px;font-size:11px">
+          <span style="color:#38bdf8">● syn_ratio</span>
+          <span style="color:#fb7185">● rst_ratio</span>
+          <span style="color:#fbbf24">● flows</span>
+          <span style="color:#818cf8">● bytes_total</span>
+        </div>
+      </div>
+      <div style="height:190px;position:relative">
+        <canvas id="tm_evolution_chart"></canvas>
+      </div>
+    </div>
+
+    <!-- Scrutinized Window 13-Feature Matrix -->
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;font-weight:700;color:var(--text2);margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+        <span>🔬 Scrutinized Window 13-Feature Vector (<span id="tm_features_window_name">Trigger Window</span>)</span>
+        <span style="font-size:11px;color:var(--text3)">Values update as you scrub timeline</span>
+      </div>
+      <div id="tm_features_grid" style="display:grid;grid-template-columns:repeat(auto-fit, minmax(130px, 1fr));gap:8px">
+        <!-- Populated via JS -->
+      </div>
+    </div>
+
+    <!-- Forensic Analysis Panels: SHAP + Zero-Day + MITRE -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <!-- Left: SHAP Attributions -->
+      <div style="background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px">
+        <div style="font-size:12px;font-weight:700;color:#38bdf8;margin-bottom:8px;display:flex;align-items:center;gap:6px">
+          <span>🔍</span> SHAP Root Cause Contributions
+        </div>
+        <div id="tm_shap_container" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+
+      <!-- Right: Zero-Day & Novelty -->
+      <div style="background:rgba(15,23,42,0.4);border:1px solid rgba(255,255,255,0.06);border-radius:10px;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div style="font-size:12px;font-weight:700;color:#f59e0b;display:flex;align-items:center;gap:6px">
+            <span>☣️</span> Zero-Day Tail Anomaly Contributors
+          </div>
+          <span id="tm_zeroday_badge" class="tag t-warn" style="font-size:10px">Novelty: 0%</span>
+        </div>
+        <div id="tm_zeroday_container" style="max-height:180px;overflow-y:auto"></div>
+      </div>
+    </div>
+
+    <!-- Playbook & Firewall Rule -->
+    <div style="margin-top:14px;background:rgba(239,68,68,0.05);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <div style="font-size:12px;font-weight:700;color:#f87171;display:flex;align-items:center;gap:6px">
+          <span>🛡️</span> MITRE ATT&CK & Recommended Firewall Rule
+        </div>
+        <span id="tm_mitre_tag" style="font-size:11px;color:#94a3b8;font-family:monospace">T1498.001 (Direct Network Flood)</span>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
+        <code id="tm_firewall_rule" style="flex:1;background:rgba(15,23,42,0.85);border:1px solid rgba(255,255,255,0.1);padding:6px 8px;border-radius:6px;font-size:11px;color:#38bdf8;font-family:monospace;word-break:break-all"></code>
+        <button onclick="copyTimeMachineFirewallRule()" style="background:rgba(59,130,246,0.2);border:1px solid rgba(59,130,246,0.4);color:#93c5fd;border-radius:6px;padding:6px 10px;cursor:pointer;font-size:11px">Copy</button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- DEVICE TELEMETRY & QUARANTINE MODAL -->
+<div class="modal-overlay" id="device_modal">
+  <div class="modal" style="position:relative;max-width:560px;width:92%;background:var(--bg-card);border:1px solid var(--border);border-radius:12px;box-shadow:0 20px 25px -5px rgba(0,0,0,0.5)">
+    <button class="modal-close" onclick="closeDeviceModal()">&times;</button>
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+      <span id="dev_icon" style="font-size:30px">📡</span>
+      <div>
+        <h3 id="dev_name" style="margin:0;font-size:16px;color:#f8fafc">Device Details</h3>
+        <div id="dev_ip" style="font-size:12px;font-family:monospace;color:var(--text3);margin-top:2px"></div>
+      </div>
+      <span id="dev_state_badge" class="tag" style="margin-left:auto;font-weight:700">BENIGN</span>
+    </div>
+
+    <!-- Device Telemetry Grid -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:16px 0;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.06);padding:14px;border-radius:10px">
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Classification</div>
+        <div id="dev_classification" style="font-weight:700;font-size:13px;color:#38bdf8;margin-top:2px">IoT Device</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Origin / GeoIP</div>
+        <div id="dev_geo" style="font-weight:600;font-size:13px;color:#f1f5f9;margin-top:2px">🏠 Private Network</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">ISP / Provider</div>
+        <div id="dev_isp" style="font-size:12px;color:var(--text2);margin-top:2px">Internal Subnet</div>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Abuse Score / Threat</div>
+        <div id="dev_threat" style="font-size:12px;color:#94a3b8;margin-top:2px">Clean</div>
+      </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div style="display:flex;gap:12px;margin-top:18px">
+      <button id="btn_dev_quarantine" class="btn" style="flex:1;background:#ef4444;color:#fff;font-weight:700;padding:10px;border-radius:8px;border:none;cursor:pointer" onclick="quarantineCurrentDevice()">
+        🚫 Quarantine Host (Block)
+      </button>
+      <button id="btn_dev_unblock" class="btn" style="flex:1;background:#10b981;color:#fff;font-weight:700;padding:10px;border-radius:8px;border:none;cursor:pointer" onclick="unblockCurrentDevice()">
+        ✅ Unblock Host (Restore)
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="app-layout">
+
+<!-- ============ SIDEBAR ============ -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-brand">
+    <svg viewBox="0 0 32 32" fill="none">
+      <path d="M16 2L3 9v14l13 7 13-7V9L16 2z" stroke="url(#sg)" stroke-width="2" fill="rgba(59,130,246,.08)"/>
+      <path d="M16 9v8M12 13h8" stroke="url(#sg)" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="16" cy="16" r="3" fill="url(#sg)" opacity="0.4"/>
+      <defs><linearGradient id="sg" x1="3" y1="2" x2="29" y2="30"><stop stop-color="#3b82f6"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
+    </svg>
+    <div>
+      <div class="brand-text">IoTGuard</div>
+      <div class="brand-sub">Intrusion Detection System</div>
+    </div>
+  </div>
+
+  <nav class="sidebar-nav">
+    <div class="nav-section">Monitoring</div>
+    <a class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Dashboard
+      <span class="nav-badge" id="nav_attack_count" style="display:none">0</span>
+    </a>
+    <a class="nav-item" data-page="network" onclick="switchPage('network')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+      Network Map
+    </a>
+    <a class="nav-item" data-page="analytics" onclick="switchPage('analytics')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Analytics
+    </a>
+
+    <div class="nav-section">Control</div>
+    <a class="nav-item" data-page="controls" onclick="switchPage('controls')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      Settings
+    </a>
+    <a class="nav-item" data-page="events" onclick="switchPage('events')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+      Event Log
+    </a>
+
+    <div class="nav-section">Simulate</div>
+    <a class="nav-item" data-page="simulate" onclick="switchPage('simulate')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+      Attack Lab
+    </a>
+  </nav>
+
+  <div class="sidebar-footer">
+    <span class="status-dot" id="sidebar_status_dot"></span>
+    <span id="sidebar_status_text">Connecting...</span>
+  </div>
+</aside>
+
+<!-- ============ MAIN CONTENT ============ -->
+<div class="main-content">
+  <div class="topbar">
+    <button class="menu-toggle" onclick="document.getElementById('sidebar').classList.toggle('open')">☰</button>
+    <div class="topbar-title" id="page_title">Dashboard</div>
+    <div class="spacer"></div>
+    
+    <!-- DEMO CONTROLS -->
+    <div class="demo-controls" style="display:flex;align-items:center;gap:10px;margin-right:14px">
+      <span id="demo_status_badge" class="tag t-ok" style="font-size:11px;font-weight:700;padding:4px 10px;letter-spacing:0.5px">● STREAMING</span>
+      <button class="btn btn-sm" id="btn_demo_start" onclick="startDemo()" style="background:#10b981;color:#fff;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer;display:none">
+        ▶ Start Demo
+      </button>
+      <button class="btn btn-sm" id="btn_demo_stop" onclick="stopDemo()" style="background:#ef4444;color:#fff;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer">
+        ⏹ Stop Demo
+      </button>
+      <button class="btn btn-sm" id="btn_demo_quick_attack" onclick="launchAttack('syn')" style="background:#f59e0b;color:#111;border:none;padding:5px 12px;font-size:12px;font-weight:600;border-radius:6px;cursor:pointer">
+        ⚡ Inject Attack
+      </button>
+    </div>
+
+    <span class="mode-badge demo" id="mode_badge">DEMO</span>
+    <div class="clock" id="clock">--:--:--</div>
+  </div>
+
+  <div class="content">
+
+    <!-- ==================== PAGE: DASHBOARD ==================== -->
+    <div class="page active" id="page_dashboard">
+
+      <!-- Enterprise Phase 11: SOC Executive SLA & Governance Strip -->
+      <div class="panel fade-in soc-governance-panel" style="margin-bottom:16px;border-left:4px solid #10b981;background:linear-gradient(135deg, rgba(16,185,129,0.04) 0%, rgba(15,23,42,0.6) 100%)">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#10b981;font-size:18px">🛡️</span>
+              Enterprise SOC Governance &amp; Fleet SLA Telemetry
+            </div>
+            <div class="panel-subtitle">Real-Time SecOps KPIs · NIS2 &amp; EU CRA Aligned · Cryptographic Audit Ledger Status</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('html')" id="btn_export_soc_html" title="Open Interactive Print-Ready Executive Report" style="background:linear-gradient(135deg,#059669,#10b981);color:#fff;border:none;cursor:pointer;padding:7px 14px;border-radius:6px;font-size:12px;font-weight:700;display:flex;align-items:center;gap:6px">
+              <span>📄</span> Export Executive SOC Report
+            </button>
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('json')" id="btn_export_soc_json" title="Download Machine-Readable JSON Report" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:12px;font-weight:600">
+              JSON
+            </button>
+            <button class="btn btn-sm btn-report-export" onclick="exportExecutiveReport('markdown')" id="btn_export_soc_md" title="Download Markdown Report" style="background:#1e293b;color:#94a3b8;border:1px solid #334155;cursor:pointer;padding:7px 10px;border-radius:6px;font-size:12px;font-weight:600">
+              MD
+            </button>
+          </div>
+        </div>
+
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-top:14px">
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">MTTD (Detection)</span>
+              <span id="soc_mttd_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">SLA MET</span>
+            </div>
+            <div id="soc_mttd_val" style="font-size:22px;font-weight:800;color:#38bdf8;margin:4px 0">14.2 ms</div>
+            <div style="font-size:11px;color:var(--text3)">Target: &lt; 100 ms (Rolling Avg)</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">MTTR (Response)</span>
+              <span id="soc_mttr_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">SLA MET</span>
+            </div>
+            <div id="soc_mttr_val" style="font-size:22px;font-weight:800;color:#10b981;margin:4px 0">3.8 ms</div>
+            <div style="font-size:11px;color:var(--text3)">Target: &lt; 50 ms (eBPF / Netsh)</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Audit Ledger</span>
+              <span id="soc_audit_chain_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">VERIFIED</span>
+            </div>
+            <div id="soc_audit_val" style="font-size:18px;font-weight:800;color:#10b981;margin:4px 0">SHA-256 Chain</div>
+            <div style="font-size:11px;color:var(--text3)">Tamper-Evident Merkle Blocks</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Fleet Immunity</span>
+              <span id="soc_immunity_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(16,185,129,0.2);color:#10b981;font-weight:700">OPTIMAL</span>
+            </div>
+            <div id="soc_immunity_val" style="font-size:22px;font-weight:800;color:#10b981;margin:4px 0">100.0%</div>
+            <div style="font-size:11px;color:var(--text3)" id="soc_immunity_sub">Edge Nodes + Drift + Audit</div>
+          </div>
+
+          <div class="metric-card soc-kpi-card" style="padding:12px 14px;background:rgba(15,23,42,0.7);border:1px solid #334155;border-radius:8px">
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:700">Hardware XDP Drops</span>
+              <span id="soc_xdp_status_badge" style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(56,189,248,0.2);color:#38bdf8;font-weight:700">NIC DRIVER</span>
+            </div>
+            <div id="soc_xdp_val" style="font-size:22px;font-weight:800;color:#38bdf8;margin:4px 0">0 pkts</div>
+            <div style="font-size:11px;color:var(--text3)" id="soc_blocks_sub">Active blocks: 0</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Enterprise Phase 11: MITRE ATT&CK® Live Matrix Banner -->
+      <div class="panel fade-in mitre-matrix-panel" style="margin-bottom:16px;border-left:4px solid #f59e0b">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#f59e0b;font-size:18px">🎯</span>
+              MITRE ATT&amp;CK® Live Threat Matrix &amp; Kill-Chain Progression
+            </div>
+            <div class="panel-subtitle">Enterprise &amp; ICS/IoT Threat Framework Taxonomy Mapping · Live Active Threat Counts</div>
+          </div>
+          <div style="font-size:11px;color:var(--text3);display:flex;gap:12px;align-items:center">
+            <span>Mapped Threats: <b id="mitre_total_mapped" style="color:#f8fafc">0</b></span>
+            <span>Active Tactics: <b id="mitre_active_tactics" style="color:#f59e0b">0 / 6</b></span>
+          </div>
+        </div>
+
+        <div class="mitre-matrix-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:14px">
+          <!-- TA0043: Reconnaissance -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0043" style="border-top:3px solid #38bdf8;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#38bdf8">TA0043</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0043" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Reconnaissance</div>
+            <div id="mitre_tech_TA0043" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0001: Initial Access -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0001" style="border-top:3px solid #f59e0b;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#f59e0b">TA0001</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0001" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Initial Access</div>
+            <div id="mitre_tech_TA0001" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0002: Execution -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0002" style="border-top:3px solid #ec4899;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#ec4899">TA0002</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0002" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Execution</div>
+            <div id="mitre_tech_TA0002" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0006: Credential Access -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0006" style="border-top:3px solid #a855f7;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#a855f7">TA0006</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0006" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Credential Access</div>
+            <div id="mitre_tech_TA0006" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0011: Command and Control -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0011" style="border-top:3px solid #ef4444;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#ef4444">TA0011</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0011" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Command &amp; Control</div>
+            <div id="mitre_tech_TA0011" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+
+          <!-- TA0040: Impact -->
+          <div class="mitre-tactic-col" id="mitre_col_TA0040" style="border-top:3px solid #dc2626;background:rgba(15,23,42,0.6);border-radius:6px;padding:10px;border-left:1px solid #334155;border-right:1px solid #334155;border-bottom:1px solid #334155">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+              <span style="font-size:10px;font-weight:700;color:#dc2626">TA0040</span>
+              <span class="mitre-badge" id="mitre_cnt_TA0040" style="font-size:10px;padding:1px 6px;border-radius:10px;background:#1e293b;color:#94a3b8;font-weight:700">0</span>
+            </div>
+            <div style="font-size:12px;font-weight:700;color:#f8fafc;margin-bottom:6px">Impact (Floods/DDoS)</div>
+            <div id="mitre_tech_TA0040" style="font-size:10px;color:var(--text3);line-height:1.4">No active threats</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- System Status -->
+      <div class="section-title">System Status</div>
+      <div class="panel fade-in">
+        <div class="model-info" id="model_info">
+          <div class="mi"><div class="mi-label">Model</div><div class="mi-val" id="mi_type">LightGBM</div></div>
+          <div class="mi"><div class="mi-label">Version</div><div class="mi-val" id="mi_ver">-</div></div>
+          <div class="mi"><div class="mi-label">Features</div><div class="mi-val" id="mi_feat">13</div></div>
+          <div class="mi"><div class="mi-label">Train ROC-AUC</div><div class="mi-val" id="mi_auc" style="color:var(--green)">-</div></div>
+          <div class="mi"><div class="mi-label">Threshold</div><div class="mi-val" id="mi_thr">-</div></div>
+          <div class="mi"><div class="mi-label">Ensemble</div><div class="mi-val" id="mi_ens">-</div></div>
+        </div>
+      </div>
+
+      <!-- Fleet Federated Learning & Drift Status Card (Phase 6) -->
+      <div class="panel fade-in" style="margin-top:16px;border-left:4px solid #6366f1">
+        <div class="panel-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>
+            <div class="panel-title" style="display:flex;align-items:center;gap:8px">
+              <span style="color:#6366f1">🌐</span>
+              Fleet Federated Learning & Feature Drift Monitor
+            </div>
+            <div class="panel-subtitle">Distributed Edge FedAvg · Differential Privacy Protected · Continuous Online Drift Tracking</div>
+          </div>
+          <button class="btn btn-sm" onclick="triggerFederatedRound()" id="btn_fed_round" style="background:#4f46e5;color:#fff;border:none;cursor:pointer;padding:6px 12px;border-radius:6px;font-size:12px;font-weight:600">
+            🔄 Run FedAvg Round
+          </button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-top:12px">
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Global FedAvg Round</div>
+            <div id="fed_round_num" style="font-size:18px;font-weight:800;color:#6366f1">Round 0</div>
+            <div id="fed_model_hash" style="font-size:11px;color:var(--text3);font-family:monospace">hash: -</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Online Edge Gateways</div>
+            <div id="fed_node_count" style="font-size:18px;font-weight:800;color:#10b981">4 Active Nodes</div>
+            <div style="font-size:11px;color:var(--text3)">Diff Privacy (DP): Enabled</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Fleet Feature Drift (PSI)</div>
+            <div id="fed_drift_badge" style="font-size:15px;font-weight:800;color:#10b981">🟢 Fleet Stable</div>
+            <div id="fed_drift_psi" style="font-size:11px;color:var(--text3)">Mean PSI: 0.000</div>
+          </div>
+          <div class="metric-card" style="padding:10px 14px">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Continual Adaptation</div>
+            <div id="fed_recommendation" style="font-size:13px;font-weight:700;color:#f8fafc">FLEET_STABLE</div>
+            <div id="fed_last_sync" style="font-size:11px;color:var(--text3)">Auto-continual learning</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stats Cards -->
+      <div class="section-title">Overview — Last 60 Minutes</div>
+      <div class="stats">
+        <div class="stat">
+          <div class="icon">📊</div>
+          <div class="label">Total Events</div>
+          <div class="val" id="mt_total">0</div>
+          <div class="sub">Scored windows</div>
+          <div class="spark" id="spark_total"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">🚨</div>
+          <div class="label">Attacks Detected</div>
+          <div class="val" id="mt_attacks" style="color:var(--red)">0</div>
+          <div class="sub">Above threshold</div>
+          <div class="spark" id="spark_attacks"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">🛑</div>
+          <div class="label">IPs Blocked</div>
+          <div class="val" id="mt_blocks" style="color:var(--amber)">0</div>
+          <div class="sub">Firewall actions</div>
+          <div class="spark" id="spark_blocks"></div>
+        </div>
+        <div class="stat">
+          <div class="icon">✅</div>
+          <div class="label">Detection Rate</div>
+          <div class="val" id="mt_rate" style="color:var(--green)">-</div>
+          <div class="sub">Attack / Total</div>
+        </div>
+      </div>
+
+      <!-- Threat Gauge + Score Chart -->
+      <div class="section-title">Threat Level</div>
+      <div class="charts-row">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+              Anomaly Score Timeline
+            </div>
+            <div class="panel-subtitle"><span style="color:#3b82f6">━</span> Score &nbsp;<span style="color:#f59e0b">┅</span> Threshold &nbsp;· Last 100</div>
+          </div>
+          <div class="chart-wrap"><canvas id="scoreChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="gauge-wrap">
+            <svg class="gauge-svg" viewBox="0 0 200 120" id="threat_gauge">
+              <defs>
+                <linearGradient id="gg_low" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#10b981"/><stop offset="100%" stop-color="#34d399"/></linearGradient>
+                <linearGradient id="gg_med" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#f59e0b"/><stop offset="100%" stop-color="#fbbf24"/></linearGradient>
+                <linearGradient id="gg_high" x1="0%" y1="0%" x2="100%"><stop offset="0%" stop-color="#ef4444"/><stop offset="100%" stop-color="#f87171"/></linearGradient>
+              </defs>
+              <!-- Background arc -->
+              <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="rgba(99,130,190,0.1)" stroke-width="12" stroke-linecap="round"/>
+              <!-- Active arc -->
+              <path id="gauge_arc" d="M 20 100 A 80 80 0 0 1 180 100" fill="none" stroke="url(#gg_low)" stroke-width="12" stroke-linecap="round" stroke-dasharray="0 251" style="transition: stroke-dasharray 1s ease, stroke 0.5s"/>
+              <!-- Needle -->
+              <line id="gauge_needle" x1="100" y1="100" x2="100" y2="30" stroke="var(--text)" stroke-width="2" stroke-linecap="round" style="transition: transform 1s ease; transform-origin: 100px 100px"/>
+              <circle cx="100" cy="100" r="6" fill="var(--surface)" stroke="var(--text2)" stroke-width="2"/>
+            </svg>
+            <div class="gauge-label" id="gauge_text" style="color:var(--green)">LOW</div>
+            <div class="gauge-sub" id="gauge_sub">Current threat assessment</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Attack Distribution + Top Attackers -->
+      <div class="section-title">Intelligence</div>
+      <div class="grid-2">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 10 10"/></svg>
+              Attack Distribution
+            </div>
+          </div>
+          <div class="pie-wrap"><canvas id="pieChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              Top Attackers
+            </div>
+          </div>
+          <div id="top_attackers">
+            <div style="text-align:center;color:var(--text3);padding:20px;font-size:13px">Loading...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Detection Breakdown -->
+      <div class="section-title">Detection Breakdown</div>
+      <div class="panel fade-in" style="display:flex;gap:24px;flex-wrap:wrap">
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Canonical Taxonomies</div>
+          <div id="category_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
+        <div style="flex:1;min-width:220px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Raw Attack Classes</div>
+          <div id="class_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
+        <div style="flex:1;min-width:200px">
+          <div style="font-size:11px;color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px">Block Actions</div>
+          <div id="block_chips" class="chips"><span class="chip">Loading...</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: NETWORK MAP ==================== -->
+    <div class="page" id="page_network" style="display:none">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px">
+        <div class="section-title" style="margin-bottom:0">Live Network Topology & Device Telemetry</div>
+        <div style="display:flex;gap:8px;align-items:center">
+          <div class="chips" style="margin:0">
+            <span class="chip" id="topo_filter_all" style="cursor:pointer;background:var(--primary);color:#fff;font-weight:700" onclick="setTopoFilter('all')">All</span>
+            <span class="chip" id="topo_filter_iot" style="cursor:pointer" onclick="setTopoFilter('iot')">📡 IoT Only</span>
+            <span class="chip" id="topo_filter_it" style="cursor:pointer" onclick="setTopoFilter('it')">💻 IT Only</span>
+            <span class="chip" id="topo_filter_threats" style="cursor:pointer" onclick="setTopoFilter('threats')">🚨 Threat Nodes</span>
+          </div>
+          <button class="btn btn-sm" onclick="loadTopology()" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);color:var(--text2);padding:6px 14px;border-radius:6px;cursor:pointer;font-weight:600">
+            🔄 Refresh
+          </button>
+        </div>
+      </div>
+
+      <!-- Topology Summary Metrics Strip -->
+      <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:10px;margin-bottom:14px">
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Total Devices</div>
+          <div id="topo_count_total" style="font-size:18px;font-weight:800;color:#f8fafc">12</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">IoT Nodes</div>
+          <div id="topo_count_iot" style="font-size:18px;font-weight:800;color:#10b981">6</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">IT Nodes</div>
+          <div id="topo_count_it" style="font-size:18px;font-weight:800;color:#06b6d4">4</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Grace (Warning)</div>
+          <div id="topo_count_grace" style="font-size:18px;font-weight:800;color:#f59e0b">0</div>
+        </div>
+        <div class="metric-card" style="padding:10px 14px">
+          <div style="font-size:11px;color:var(--text3);text-transform:uppercase;font-weight:600">Quarantined (Blocked)</div>
+          <div id="topo_count_blocked" style="font-size:18px;font-weight:800;color:#ef4444">0</div>
+        </div>
+      </div>
+
+      <div class="panel fade-in">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="19" r="3"/><circle cx="19" cy="19" r="3"/><line x1="12" y1="8" x2="5" y2="16"/><line x1="12" y1="8" x2="19" y2="16"/></svg>
+            Interactive Device Topology Graph
+          </div>
+          <div class="panel-subtitle">Click any device node to inspect telemetry, view GeoIP / threat intel, and trigger manual quarantine</div>
+        </div>
+        <div class="topo-canvas-wrap" style="position:relative">
+          <canvas id="topoCanvas"></canvas>
+          <div class="topo-legend">
+            <span><span class="dot" style="background:#3b82f6"></span> Router</span>
+            <span><span class="dot" style="background:#8b5cf6"></span> Firewall</span>
+            <span><span class="dot" style="background:#10b981"></span> IoT Device</span>
+            <span><span class="dot" style="background:#06b6d4"></span> IT Device</span>
+            <span><span class="dot" style="background:#f59e0b"></span> Soft Grace Hit</span>
+            <span><span class="dot" style="background:#ef4444"></span> Quarantined / Blocked</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: ANALYTICS ==================== -->
+    <div class="page" id="page_analytics" style="display:none">
+      <div class="section-title">Feature Analysis</div>
+      <div class="grid-2">
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+              Feature Radar
+            </div>
+            <div class="panel-subtitle">Latest event feature profile</div>
+          </div>
+          <div class="radar-wrap"><canvas id="radarChart"></canvas></div>
+        </div>
+        <div class="panel fade-in">
+          <div class="panel-header">
+            <div class="panel-title">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><rect x="7" y="7" width="3" height="3"/><rect x="14" y="7" width="3" height="3"/><rect x="7" y="14" width="3" height="3"/><rect x="14" y="14" width="3" height="3"/></svg>
+              Attack Heatmap (7 Days)
+            </div>
+            <div class="panel-subtitle">Hourly attack intensity</div>
+          </div>
+          <div id="heatmap_container" style="padding:8px 0">
+            <div style="text-align:center;color:var(--text3);font-size:13px;padding:20px">Loading heatmap...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: CONTROLS ==================== -->
+    <div class="page" id="page_controls" style="display:none">
+      <div class="section-title">Decision Engine Controls</div>
+      <div class="panel fade-in">
+        <div class="controls">
+          <div class="ctrl-group"><label>Threshold</label><input id="ctl_threshold" type="number" step="0.01" min="0" max="1" style="width:90px"/></div>
+          <div class="ctrl-group"><label>Grace Hits</label><input id="ctl_grace" type="number" min="1" max="20" style="width:80px"/></div>
+          <div class="ctrl-group"><label>Window</label><input id="ctl_window" type="number" min="1" max="50" style="width:80px"/></div>
+          <div class="ctrl-group"><label>Cooldown</label><input id="ctl_cool" type="number" min="0" max="3600" style="width:90px"/></div>
+          <div class="ctrl-group" style="flex-direction:row;align-items:center;gap:6px;padding-top:18px">
+            <input id="ctl_adaptive" type="checkbox"/><label style="text-transform:none;font-size:13px;color:var(--text)">Adaptive</label>
+          </div>
+          <div style="flex:1"></div>
+          <button class="btn btn-primary" id="btn_save">💾 Save Config</button>
+        </div>
+        <div class="toast" id="save_msg"></div>
+      </div>
+
+      <div class="section-title" style="margin-top:24px">Data Management</div>
+      <div class="panel fade-in">
+        <div class="controls">
+          <button class="btn" id="btn_download">📥 Export CSV</button>
+          <button class="btn btn-danger" id="btn_clear">🗑 Clear Log</button>
+          <button class="btn btn-danger" id="btn_clear_all">⚠ Reset All</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: EVENTS ==================== -->
+    <div class="page" id="page_events" style="display:none">
+      <div class="section-title">Event Log</div>
+      <div class="panel fade-in">
+        <div class="panel-header">
+          <div class="panel-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+            Recent Events
+          </div>
+          <div class="filters">
+            <label>State <select id="flt_state"><option value="all">All</option><option value="ATTACK">Attack</option><option value="benign">Benign</option></select></label>
+            <label><input id="flt_blocked" type="checkbox"/> Blocked only</label>
+            <label>Search <input id="flt_text" type="text" placeholder="type / reason / IP..." style="min-width:180px"/></label>
+          </div>
+        </div>
+        <div class="tbl-wrap" id="tbl_wrap">
+          <table>
+            <thead><tr><th>Timestamp</th><th>#</th><th>Score</th><th>State</th><th>Threat Intel</th><th>XAI Reason</th><th>Classification</th><th>Hits</th><th>Action</th></tr></thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <button class="expand-btn" id="btn_expand" onclick="toggleExpand()">▼ Show All Events</button>
+      </div>
+    </div>
+
+    <!-- ==================== PAGE: SIMULATE ==================== -->
+    <div class="page" id="page_simulate" style="display:none">
+      <div class="section-title">Attack Simulation Lab</div>
+      <div class="panel fade-in" style="border:1px solid rgba(239,68,68,0.15)">
+        <div class="panel-header">
+          <div class="panel-title" style="color:#f87171">
+            <svg viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Launch Simulated Attacks
+          </div>
+          <div class="panel-subtitle">Injects attack-pattern features → decision loop scores → dashboard updates</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px">
+          <button class="sim-btn" onclick="launchAttack('syn')">⚡ SYN Flood</button>
+          <button class="sim-btn" onclick="launchAttack('udp')">🌊 UDP Flood</button>
+          <button class="sim-btn" onclick="launchAttack('http')">🐌 HTTP Slowloris</button>
+          <button class="sim-btn" onclick="launchAttack('scan')">🔍 Port Scan</button>
+          <button class="sim-btn" onclick="launchAttack('botnet')">🤖 IoT Botnet</button>
+          <button class="sim-btn" onclick="launchAttack('exfil')">📤 Data Exfil</button>
+        </div>
+        <div id="sim_msg" style="color:var(--amber);margin-top:12px;font-size:13px;font-weight:500;min-height:20px"></div>
+      </div>
+
+      <div class="section-title" style="margin-top:24px">How It Works</div>
+      <div class="panel fade-in">
+        <div style="font-size:13px;color:var(--text2);line-height:1.8">
+          <p>Each button injects <strong>realistic attack-pattern feature rows</strong> directly into <code style="color:var(--accent);background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px">data/features.csv</code>.</p>
+          <p style="margin-top:8px">The <strong>decision loop</strong> picks up the rows, scores them with the ML model, and writes detections to <code style="color:var(--accent);background:rgba(59,130,246,0.1);padding:2px 6px;border-radius:4px">alerts.jsonl</code>.</p>
+          <p style="margin-top:8px">The dashboard then visualizes everything in real-time. No Scapy or admin privileges required.</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /content -->
+
+  <div class="footer">IoTGuard IDS v2.0 · ML-Driven Intrusion Detection · LightGBM + SHAP + Ensemble · <span id="footer_clock"></span></div>
+</div><!-- /main-content -->
+
+</div><!-- /app-layout -->
+
+<script>
+// ============================================================================
+// IoTGuard Dashboard — JavaScript Engine
+// ============================================================================
+'use strict';
+
+// --- STATE ---
+let lastTs = null, chart, pieChart, radarChart;
+let chartData = {labels:[], scores:[], thresholds:[]};
+let lastBlockTs = 0, allEvents = [], fltState = 'all', fltBlockedOnly = false, fltText = '';
+let sparkHistory = {total:[], attacks:[], blocks:[]};
+let topoAnimFrame = null, topoData = null;
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+// --- PAGE NAVIGATION ---
+function switchPage(page) {
+  document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const el = document.getElementById('page_' + page);
+  if (el) el.style.display = 'block';
+  const nav = document.querySelector(`.nav-item[data-page="${page}"]`);
+  if (nav) nav.classList.add('active');
+  const titles = {dashboard:'Dashboard',network:'Network Map',analytics:'Analytics',controls:'Settings',events:'Event Log',simulate:'Attack Lab'};
+  document.getElementById('page_title').textContent = titles[page] || 'Dashboard';
+  // Initialize page-specific content
+  if (page === 'network') initTopology();
+  if (page === 'analytics') { loadRadar(); loadHeatmap(); }
+}
+
+// --- AUDIO ---
+function beep(){const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.connect(g);g.connect(audioCtx.destination);o.type='square';o.frequency.value=880;g.gain.value=0.04;o.start();setTimeout(()=>o.stop(),140)}
+
+// --- UTILS ---
+function iso(ts){try{return new Date(ts*1000).toLocaleString('en-GB',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit',second:'2-digit'})}catch{return'-'}}
+function tag(t,c){return'<span class="tag '+c+'">'+t+'</span>'}
+function stateTag(s){return s==='ATTACK'?tag('ATTACK','t-bad'):tag('BENIGN','t-ok')}
+function actionTag(a){
+  if(!a||!a.startsWith('BLOCK'))return tag('NONE','t-ok');
+  if(a==='BLOCK-KILL')return tag('BLOCK KILL','t-bad');
+  if(a==='BLOCK-HARD')return tag('BLOCK HARD','t-warn');
+  return tag(a.replace('-',' '),'t-warn');
+}
+function scoreCell(s){
+  const v=(s??0).toFixed(3);
+  const c=s>=0.9?'var(--red)':s>=0.7?'var(--amber)':'var(--green)';
+  const bg=s>=0.9?'rgba(239,68,68,':s>=0.7?'rgba(245,158,11,':'rgba(16,185,129,';
+  const w=Math.round(s*100);
+  return'<td class="score-cell"><div class="score-bar" style="width:'+w+'%;background:'+bg+'.15)"></div><span class="score-val" style="color:'+c+'">'+v+'</span></td>';
+}
+function reasonHtml(r){return r?'<span class="reason" title="'+r.replace(/"/g,'&quot;')+'">'+r+'</span>':'<span style="color:var(--text3)">-</span>'}
+function threatHtml(t){
+  if(!t)return'<span style="color:var(--text3)">-</span>';
+  let h='';
+  if(t.flag)h+=`<span style="font-size:14px;margin-right:4px">${t.flag}</span>`;
+  if(t.country)h+=`<span style="font-size:11px;color:var(--text2);margin-right:6px">${t.country}</span>`;
+  if(t.threat)h+=tag(t.threat,'t-bad');
+  return h||'<span style="color:var(--text3)">-</span>';
+}
+
+// --- NOTIFICATION TOASTS (Unobtrusive Bottom-Right) ---
+function showToast(type, msg) {
+  const c = document.getElementById('toast_container');
+  if (!c) return;
+  const el = document.createElement('div');
+  el.className = 'toast-item ' + type;
+  const icons = {attack:'🚨',block:'🛑',info:'ℹ️',bad:'❌',ok:'✅',error:'❌'};
+  el.innerHTML = `<span class="toast-icon">${icons[type]||'ℹ️'}</span><span class="toast-msg">${msg}</span><button onclick="this.parentElement.remove()" style="background:none;border:none;color:var(--text3);cursor:pointer;font-size:16px;line-height:1;padding:0 0 0 8px;margin-left:auto">&times;</button>`;
+  c.appendChild(el);
+  setTimeout(()=>{
+    el.classList.add('exit');
+    setTimeout(()=>el.remove(), 250);
+  }, 3000);
+  // Keep max 3 toasts
+  while(c.children.length > 3) c.children[0].remove();
+}
+
+// --- ANIMATED NUMBER UPDATE ---
+function animateValue(el, newVal) {
+  const old = parseInt(el.textContent) || 0;
+  if (old === newVal) return;
+  el.textContent = newVal;
+  el.classList.remove('count-pop');
+  void el.offsetWidth; // force reflow
+  el.classList.add('count-pop');
+}
+
+// --- SPARKLINES ---
+function updateSpark(id, history, color) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const max = Math.max(...history, 1);
+  el.innerHTML = history.slice(-20).map(v =>
+    `<div class="bar" style="height:${Math.max(2, (v/max)*100)}%;background:${color}"></div>`
+  ).join('');
+}
+
+// --- THREAT GAUGE ---
+function updateGauge(score) {
+  const arc = document.getElementById('gauge_arc');
+  const needle = document.getElementById('gauge_needle');
+  const label = document.getElementById('gauge_text');
+  const sub = document.getElementById('gauge_sub');
+  if (!arc) return;
+  const pct = Math.min(1, Math.max(0, score));
+  const arcLen = 251; // approximate arc length
+  arc.setAttribute('stroke-dasharray', `${pct * arcLen} ${arcLen}`);
+  // Needle rotation: -90 to +90 degrees mapped to 0-1
+  const angle = -90 + pct * 180;
+  needle.style.transform = `rotate(${angle}deg)`;
+  if (pct < 0.3) { label.textContent = 'LOW'; label.style.color = 'var(--green)'; arc.setAttribute('stroke', 'url(#gg_low)'); sub.textContent = 'System operating normally'; }
+  else if (pct < 0.6) { label.textContent = 'MEDIUM'; label.style.color = 'var(--amber)'; arc.setAttribute('stroke', 'url(#gg_med)'); sub.textContent = 'Elevated threat activity detected'; }
+  else if (pct < 0.85) { label.textContent = 'HIGH'; label.style.color = '#f87171'; arc.setAttribute('stroke', 'url(#gg_high)'); sub.textContent = 'Active attacks in progress'; }
+  else { label.textContent = 'CRITICAL'; label.style.color = '#ef4444'; arc.setAttribute('stroke', 'url(#gg_high)'); sub.textContent = '⚠ Multiple active threats — take action!'; }
+}
+
+// --- TABLE & TAXONOMY BADGES ---
+function catBadge(cat, sev) {
+  if (!cat || cat === 'Benign' || cat === 'benign') return '<span class="tag t-good">Benign</span>';
+  const s = String(sev || 'HIGH').toUpperCase();
+  const colors = {
+    'CRITICAL': 'background:rgba(239,68,68,0.22);color:#fca5a5;border:1px solid rgba(239,68,68,0.45)',
+    'HIGH': 'background:rgba(249,115,22,0.22);color:#fdba74;border:1px solid rgba(249,115,22,0.45)',
+    'MEDIUM': 'background:rgba(245,158,11,0.22);color:#fde68a;border:1px solid rgba(245,158,11,0.45)',
+    'LOW': 'background:rgba(59,130,246,0.22);color:#93c5fd;border:1px solid rgba(59,130,246,0.45)',
+  };
+  const style = colors[s] || colors['HIGH'];
+  return `<span style="padding:2px 8px;border-radius:6px;font-size:11px;font-weight:700;display:inline-flex;align-items:center;gap:4px;${style}"><span>⚡</span>${cat}</span>`;
+}
+
+function rowHtml(e) {
+  const isAtk = e.state === 'ATTACK';
+  const cat = e.attack_category || (isAtk ? (e.pred_class || 'DDoS-SYN') : 'Benign');
+  const pb = e.remediation_playbook;
+  const sev = pb ? pb.severity : (isAtk ? 'HIGH' : 'LOW');
+  
+  const classificationHtml = isAtk
+    ? `<div style="display:flex;align-items:center;gap:6px">
+         ${catBadge(cat, sev)}
+         <button onclick="event.stopPropagation();openShapModal(${e.index})" title="View Remediation Playbook" style="background:rgba(99,130,190,0.18);border:1px solid rgba(99,130,190,0.35);color:#cbd5e1;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">📋 Playbook</button>
+         <button onclick="event.stopPropagation();openTimeMachineModal(${e.index})" title="Open Incident Time-Machine Replay" style="background:rgba(56,189,248,0.18);border:1px solid rgba(56,189,248,0.35);color:#38bdf8;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">⏱️ Time-Machine</button>
+       </div>`
+    : `<div style="display:flex;align-items:center;gap:6px">
+         <span class="tag t-good">Benign</span>
+         <button onclick="event.stopPropagation();openTimeMachineModal(${e.index})" title="Open Incident Time-Machine Replay" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);color:#94a3b8;padding:2px 6px;border-radius:4px;cursor:pointer;font-size:10px;font-weight:600">⏱️ Replay</button>
+       </div>`;
+
+  return `<tr onclick="openShapModal(${e.index})" title="Click for Remediation Playbook & SHAP detail" style="cursor:pointer">
+    <td>${iso(e.ts)}</td><td>${e.index}</td>${scoreCell(e.score??0)}<td>${stateTag(e.state)}</td>
+    <td class="threat-cell">${threatHtml(e.threat)}</td><td>${reasonHtml(e.reason)}</td>
+    <td>${classificationHtml}</td><td>${e.hits_in_window??0}</td><td>${actionTag(e.action)}</td></tr>`;
+}
+function passesFilters(e){
+  if(fltState!=='all'&&e.state!==fltState)return false;
+  if(fltBlockedOnly&&!(e.action&&String(e.action).startsWith('BLOCK')))return false;
+  if(fltText){const t=fltText;const hay=[e.attack_category||'',e.pred_class||'',e.reason||'',(e.threat&&(e.threat.threat||e.threat.country||''))||''].join(' ').toLowerCase();if(!hay.includes(t))return false}
+  return true;
+}
+function renderTable(){
+  const tbody=document.getElementById('rows');if(!tbody)return;
+  let html='';const src=allEvents.slice(-200).reverse();
+  for(const e of src){if(!passesFilters(e))continue;html+=rowHtml(e)}
+  tbody.innerHTML=html;
+}
+function toggleExpand(){const w=document.getElementById('tbl_wrap'),b=document.getElementById('btn_expand');w.classList.toggle('expanded');b.textContent=w.classList.contains('expanded')?'▲ Collapse Events':'▼ Show All Events'}
+
+// --- REMEDIATION PLAYBOOK & SHAP MODAL ---
+let currentModalEventIndex = 0;
+let currentTimeMachineBundle = null;
+let currentTimeMachineIndex = 8;
+let tmEvolutionChart = null;
+let tmPlayInterval = null;
+
+async function openShapModal(index) {
+  currentModalEventIndex = index;
+  const overlay = document.getElementById('shap_modal');
+  const ev = allEvents.find(e => e.index === index) || {};
+  const isAtk = ev.state === 'ATTACK';
+  const pbCard = document.getElementById('playbook_card');
+  const catBadgeEl = document.getElementById('modal_cat_badge');
+
+  const pb = ev.remediation_playbook;
+  const cat = ev.attack_category || ev.pred_class || (isAtk ? 'Attack Anomaly' : 'Benign');
+
+  if (isAtk && (pb || cat)) {
+    pbCard.style.display = 'block';
+    catBadgeEl.style.display = 'inline-block';
+    catBadgeEl.innerHTML = catBadge(cat, pb ? pb.severity : 'HIGH');
+
+    document.getElementById('pb_title').textContent = pb && pb.title ? pb.title : `${cat} Remediation Playbook`;
+    const sevEl = document.getElementById('pb_severity');
+    const sevText = pb && pb.severity ? pb.severity : 'HIGH';
+    sevEl.textContent = sevText;
+    sevEl.className = 'tag ' + (sevText === 'CRITICAL' || sevText === 'HIGH' ? 't-bad' : 't-warn');
+
+    document.getElementById('pb_action').textContent = pb && pb.recommended_action ? pb.recommended_action : 'Quarantine source IP and inspect anomalous flow indicators.';
+    document.getElementById('pb_ports').textContent = pb && pb.port_restrictions ? pb.port_restrictions : 'Inspect affected TCP/UDP transport ports.';
+    document.getElementById('pb_ratelimit').textContent = pb && pb.rate_limit_policy ? pb.rate_limit_policy : 'Apply adaptive throttling per host.';
+    document.getElementById('pb_rule').textContent = pb && pb.firewall_rule ? pb.firewall_rule : `netsh advfirewall firewall add rule name="IoTGuard_Block" dir=in action=block remoteip=${ev.src_ip || '<TARGET_IP>'}`;
+    document.getElementById('pb_hint').textContent = pb && pb.payload_inspection_hint ? pb.payload_inspection_hint : 'Analyze packet inter-arrival times and protocol ratios.';
+  } else {
+    pbCard.style.display = 'none';
+    catBadgeEl.style.display = 'none';
+  }
+
+  try {
+    const r = await fetch('/api/shap_detail?index=' + index);
+    const j = await r.json();
+    if (!j.ok) {
+      if (!isAtk) showToast('info', 'No SHAP data for event #' + index);
+    }
+    document.getElementById('shap_title').textContent = isAtk ? `🛡️ ${cat} — Event #${index}` : `🔍 SHAP — Event #${index}`;
+    const scoreVal = j.score ?? ev.score ?? 0;
+    const scoreColor = scoreVal >= 0.7 ? 'var(--red)' : 'var(--green)';
+    document.getElementById('shap_meta').innerHTML = `Score: <strong style="color:${scoreColor}"> ${scoreVal.toFixed(4)}</strong> · State: ${stateTag(ev.state || j.state)} · Taxonomy: <strong>${cat}</strong>${ev.src_ip ? ' · Target IP: <code>' + ev.src_ip + '</code>' : ''}`;
+
+    const bars = document.getElementById('shap_bars');
+    const contribs = j.contributions || [];
+    if (!contribs.length) {
+      bars.innerHTML = '<div style="color:var(--text3);text-align:center;padding:14px;font-size:12px">No SHAP contributions available for this event</div>';
+    } else {
+      const maxAbs = Math.max(...contribs.map(c => Math.abs(c.value)), 0.01);
+      bars.innerHTML = contribs.map(c => {
+        const pct = Math.abs(c.value) / maxAbs * 45;
+        const isPos = c.value > 0;
+        return `<div class="shap-bar-row">
+          <div class="shap-feature">${c.feature}</div>
+          <div class="shap-bar-wrap"><div class="shap-bar ${isPos?'positive':'negative'}" style="width:${pct}%"></div></div>
+          <div class="shap-val ${isPos?'pos':'neg'}">${isPos?'+':''}${c.value.toFixed(3)}</div>
+        </div>`;
+      }).join('');
+    }
+    overlay.classList.add('active');
+  } catch(e) {
+    overlay.classList.add('active');
+  }
+}
+function closeShapModal() { document.getElementById('shap_modal').classList.remove('active'); }
+document.getElementById('shap_modal').addEventListener('click', e => { if(e.target.classList.contains('modal-overlay')) closeShapModal(); });
+
+function copyFirewallRule() {
+  const code = document.getElementById('pb_rule').textContent;
+  if (code && navigator.clipboard) {
+    navigator.clipboard.writeText(code);
+    showToast('info', '📋 Firewall rule copied to clipboard');
+  }
+}
+
+// --- INCIDENT TIME-MACHINE & FORENSIC SNAPSHOT REPLAY ---
+function openTimeMachineFromPlaybook() {
+  closeShapModal();
+  openTimeMachineModal(currentModalEventIndex);
+}
+
+async function openTimeMachineModal(eventIndex) {
+  currentModalEventIndex = eventIndex;
+  const overlay = document.getElementById('timemachine_modal');
+  if (!overlay) return;
+  
+  overlay.classList.add('active');
+  document.getElementById('tm_meta').textContent = `Loading forensic evidence package for event #${eventIndex}...`;
+  document.getElementById('tm_shap_container').innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px;font-size:12px">Extracting SHAP feature attributions...</div>';
+  document.getElementById('tm_zeroday_container').innerHTML = '<div style="color:var(--text3);text-align:center;padding:12px;font-size:12px">Analyzing Zero-Day statistical tail deviations...</div>';
+
+  try {
+    const res = await fetch(`/api/v1/forensics/${eventIndex}`);
+    const bundle = await res.json();
+    if (!bundle.ok) {
+      showToast('error', bundle.error || 'Failed to load forensic evidence bundle');
+      return;
+    }
+    
+    currentTimeMachineBundle = bundle;
+    const trig = bundle.trigger_event || {};
+    const cat = trig.attack_category || trig.pred_class || 'Attack Anomaly';
+    const scoreVal = trig.score ?? 0;
+    const scoreColor = scoreVal >= 0.7 ? '#ef4444' : '#10b981';
+    
+    // Header
+    document.getElementById('tm_title').textContent = `Incident Time-Machine — Event #${eventIndex}`;
+    const catBadgeEl = document.getElementById('tm_cat_badge');
+    catBadgeEl.textContent = cat;
+    catBadgeEl.className = 'tag ' + (scoreVal >= 0.7 ? 't-bad' : 't-warn');
+    
+    const srcIp = trig.src_ip || (bundle.threat_intel && bundle.threat_intel.ip) || 'Unknown';
+    const flag = (bundle.threat_intel && bundle.threat_intel.flag) || '🏠';
+    const country = (bundle.threat_intel && bundle.threat_intel.country) || 'LAN';
+    const timeStr = bundle.iso_timestamp || new Date().toISOString();
+    
+    document.getElementById('tm_meta').innerHTML = `
+      Timestamp: <strong>${timeStr}</strong> · 
+      Target IP: <code>${srcIp}</code> (${flag} ${country}) · 
+      Score: <strong style="color:${scoreColor}">${(scoreVal * 100).toFixed(1)}%</strong> · 
+      Action: <span class="tag t-bad">${trig.action || 'BLOCK'}</span> · 
+      Bundle ID: <code>${bundle.bundle_id}</code>
+    `;
+    
+    // Integrity Signature Badge
+    const sigHash = (bundle.evidence_integrity && bundle.evidence_integrity.sha256_hash) || '';
+    document.getElementById('tm_sig_text').textContent = sigHash ? `SHA-256: ${sigHash.slice(0, 12)}...` : 'Cryptographically Signed';
+    
+    // Render Feature Evolution Chart
+    renderTimeMachineEvolutionChart(bundle.replay_timeline || []);
+    
+    // Render Scrubber
+    const timeline = bundle.replay_timeline || [];
+    const maxIdx = Math.max(0, timeline.length - 1);
+    const scrubber = document.getElementById('tm_scrubber');
+    scrubber.max = maxIdx;
+    scrubber.value = maxIdx;
+    currentTimeMachineIndex = maxIdx;
+    
+    // Render Selected Window Details
+    renderTimeMachineWindow(maxIdx);
+    
+    // Render SHAP Attributions Panel
+    renderTimeMachineShap(bundle.shap_attributions);
+    
+    // Render Zero-Day Tail Analysis Panel
+    renderTimeMachineZeroDay(bundle.zero_day_analysis);
+    
+    // Render Playbook & MITRE
+    const pb = bundle.remediation_playbook || {};
+    const mitre = bundle.mitre_attack || pb.mitre || {};
+    document.getElementById('tm_mitre_tag').textContent = mitre.technique_id ? `${mitre.technique_id}: ${mitre.technique_name} [${mitre.tactic_name}]` : 'T1498.001: Direct Network Flood [Impact]';
+    document.getElementById('tm_firewall_rule').textContent = pb.firewall_rule || `netsh advfirewall firewall add rule name="IoTGuard_Block_${srcIp}" dir=in action=block remoteip=${srcIp}`;
+
+  } catch(err) {
+    console.error('Time-machine loading error:', err);
+    showToast('error', 'Error connecting to forensics API: ' + err.message);
+  }
+}
+
+function closeTimeMachineModal() {
+  const overlay = document.getElementById('timemachine_modal');
+  if (overlay) overlay.classList.remove('active');
+  if (tmPlayInterval) {
+    clearInterval(tmPlayInterval);
+    tmPlayInterval = null;
+    const btn = document.getElementById('btn_tm_play');
+    if (btn) btn.textContent = '▶ Play';
+  }
+}
+
+function renderTimeMachineEvolutionChart(timeline) {
+  const canvas = document.getElementById('tm_evolution_chart');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  
+  if (tmEvolutionChart) {
+    tmEvolutionChart.destroy();
+    tmEvolutionChart = null;
+  }
+  
+  const labels = timeline.map(w => w.relative_label || `W${w.relative_window}`);
+  const synData = timeline.map(w => w.key_metrics ? w.key_metrics.syn_ratio : (w.features ? w.features.syn_ratio : 0));
+  const rstData = timeline.map(w => w.key_metrics ? w.key_metrics.rst_ratio : (w.features ? w.features.rst_ratio : 0));
+  const flowData = timeline.map(w => w.key_metrics ? w.key_metrics.flows : (w.features ? w.features.flows : 0));
+  const byteData = timeline.map(w => w.key_metrics ? (w.key_metrics.bytes_total / 1000.0) : (w.features ? w.features.bytes_total / 1000.0 : 0));
+  
+  tmEvolutionChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [
+        {
+          label: 'syn_ratio',
+          data: synData,
+          borderColor: '#38bdf8',
+          backgroundColor: 'rgba(56,189,248,0.1)',
+          borderWidth: 2.5,
+          tension: 0.3,
+          yAxisID: 'y_ratio',
+          pointRadius: 4,
+          pointHoverRadius: 6,
+        },
+        {
+          label: 'rst_ratio',
+          data: rstData,
+          borderColor: '#fb7185',
+          backgroundColor: 'rgba(251,113,133,0.08)',
+          borderWidth: 2,
+          tension: 0.3,
+          yAxisID: 'y_ratio',
+          pointRadius: 3,
+        },
+        {
+          label: 'flows',
+          data: flowData,
+          borderColor: '#fbbf24',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [4, 4],
+          tension: 0.2,
+          yAxisID: 'y_volume',
+          pointRadius: 3,
+        },
+        {
+          label: 'KB_total',
+          data: byteData,
+          borderColor: '#818cf8',
+          backgroundColor: 'transparent',
+          borderWidth: 2,
+          borderDash: [2, 2],
+          tension: 0.2,
+          yAxisID: 'y_volume',
+          pointRadius: 3,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(15,23,42,0.95)',
+          borderColor: 'rgba(255,255,255,0.1)',
+          borderWidth: 1,
+          titleColor: '#f8fafc',
+          bodyColor: '#cbd5e1',
+          padding: 10,
+        }
+      },
+      scales: {
+        x: {
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#94a3b8', font: { size: 10 } }
+        },
+        y_ratio: {
+          type: 'linear',
+          position: 'left',
+          min: 0,
+          max: 1.0,
+          grid: { color: 'rgba(255,255,255,0.05)' },
+          ticks: { color: '#38bdf8', font: { size: 10 } },
+          title: { display: true, text: 'Ratios (0.0 - 1.0)', color: '#38bdf8', font: { size: 10 } }
+        },
+        y_volume: {
+          type: 'linear',
+          position: 'right',
+          grid: { drawOnChartArea: false },
+          ticks: { color: '#fbbf24', font: { size: 10 } },
+          title: { display: true, text: 'Flows / Volume (KB)', color: '#fbbf24', font: { size: 10 } }
+        }
+      }
+    }
+  });
+}
+
+function onTimeMachineScrub(windowIdx) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const clamped = Math.max(0, Math.min(timeline.length - 1, windowIdx));
+  currentTimeMachineIndex = clamped;
+  
+  const w = timeline[clamped];
+  const labelEl = document.getElementById('tm_window_label');
+  const featWindowEl = document.getElementById('tm_features_window_name');
+  
+  if (w.is_trigger) {
+    labelEl.textContent = 'W-0 (Trigger Window — Block Executed)';
+    labelEl.style.color = '#ef4444';
+    labelEl.style.background = 'rgba(239,68,68,0.15)';
+    featWindowEl.textContent = 'Trigger Window (Block Executed)';
+  } else {
+    const diff = Math.abs(w.relative_window || (clamped - (timeline.length - 1)));
+    labelEl.textContent = `Window ${w.relative_label || 'W-' + diff} (${diff} windows before block)`;
+    labelEl.style.color = '#38bdf8';
+    labelEl.style.background = 'rgba(56,189,248,0.15)';
+    featWindowEl.textContent = `Sliding Window ${w.relative_label || 'W-' + diff}`;
+  }
+  
+  renderTimeMachineWindow(clamped);
+}
+
+function renderTimeMachineWindow(windowIdx) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const w = timeline[windowIdx] || {};
+  const feats = w.features || {};
+  
+  const grid = document.getElementById('tm_features_grid');
+  if (!grid) return;
+  
+  const keys = [
+    'flows', 'bytes_total', 'pkts_total', 'syn_ratio',
+    'mean_bytes_flow', 'ack_ratio', 'fin_ratio', 'rst_ratio',
+    'http_ratio', 'tcp_ratio', 'protocol_diversity', 'std_bytes', 'iat_mean'
+  ];
+  
+  grid.innerHTML = keys.map(k => {
+    const val = feats[k] !== undefined ? feats[k] : 0.0;
+    let isElevated = false;
+    if (k === 'syn_ratio' && val > 0.5) isElevated = true;
+    if (k === 'rst_ratio' && val > 0.1) isElevated = true;
+    if (k === 'flows' && val > 50) isElevated = true;
+    if (k === 'bytes_total' && val > 20000) isElevated = true;
+    
+    const cardBg = isElevated ? 'rgba(239,68,68,0.12)' : 'rgba(255,255,255,0.03)';
+    const cardBorder = isElevated ? 'rgba(239,68,68,0.35)' : 'rgba(255,255,255,0.08)';
+    const valColor = isElevated ? '#f87171' : '#f1f5f9';
+    
+    const formattedVal = (typeof val === 'number')
+      ? (val >= 1000 ? val.toLocaleString() : (val % 1 !== 0 ? val.toFixed(3) : val))
+      : val;
+      
+    return `<div style="background:${cardBg};border:1px solid ${cardBorder};border-radius:6px;padding:8px 10px">
+      <div style="font-size:10px;color:var(--text3);text-transform:uppercase;font-weight:600">${k}</div>
+      <div style="font-size:14px;font-weight:700;color:${valColor};margin-top:2px;font-family:monospace">${formattedVal}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeMachineShap(shapData) {
+  const container = document.getElementById('tm_shap_container');
+  if (!container) return;
+  if (!shapData || !shapData.ranked_contributors || !shapData.ranked_contributors.length) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">No SHAP attributions recorded</div>';
+    return;
+  }
+  
+  const contribs = shapData.ranked_contributors.slice(0, 6);
+  const maxAbs = Math.max(...contribs.map(c => Math.abs(c.contribution)), 0.05);
+  
+  container.innerHTML = contribs.map(c => {
+    const pct = Math.min(100, (Math.abs(c.contribution) / maxAbs) * 100);
+    const isPos = c.contribution > 0;
+    const barColor = isPos ? '#38bdf8' : '#94a3b8';
+    return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:11px">
+      <div style="width:90px;color:var(--text2);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.feature}</div>
+      <div style="flex:1;background:rgba(255,255,255,0.05);height:6px;border-radius:3px;overflow:hidden">
+        <div style="width:${pct}%;background:${barColor};height:100%;border-radius:3px"></div>
+      </div>
+      <div style="width:45px;text-align:right;font-family:monospace;font-weight:700;color:${isPos ? '#38bdf8' : '#94a3b8'}">${isPos ? '+' : ''}${c.contribution.toFixed(3)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderTimeMachineZeroDay(zeroDayData) {
+  const container = document.getElementById('tm_zeroday_container');
+  const badge = document.getElementById('tm_zeroday_badge');
+  if (!container) return;
+  
+  if (!zeroDayData) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">No Zero-Day tail deviations detected</div>';
+    return;
+  }
+  
+  const prob = zeroDayData.tail_probability || 0.0;
+  if (badge) {
+    badge.textContent = `Tail Prob: ${(prob * 100).toFixed(0)}%`;
+    badge.className = 'tag ' + (zeroDayData.is_novel_anomaly ? 't-bad' : 't-warn');
+  }
+  
+  const items = zeroDayData.tail_contributors || [];
+  if (!items.length) {
+    container.innerHTML = '<div style="color:var(--text3);font-size:11px;text-align:center;padding:12px">All flow features fall within 1.5σ baseline distribution</div>';
+    return;
+  }
+  
+  container.innerHTML = items.map(it => {
+    const isCrit = it.severity === 'CRITICAL_TAIL';
+    const tagClass = isCrit ? 't-bad' : 't-warn';
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;padding:4px 6px;border-radius:4px;background:rgba(255,255,255,0.02)">
+      <div>
+        <span style="font-size:11px;font-weight:600;color:#f8fafc">${it.feature}</span>
+        <span style="font-size:10px;color:var(--text3);margin-left:4px">val=${it.current_value} (μ=${it.baseline_mean})</span>
+      </div>
+      <span class="tag ${tagClass}" style="font-size:9px;font-family:monospace">${it.z_score >= 0 ? '+' : ''}${it.z_score}σ</span>
+    </div>`;
+  }).join('');
+}
+
+function stepTimeMachine(delta) {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const timeline = currentTimeMachineBundle.replay_timeline;
+  const next = Math.max(0, Math.min(timeline.length - 1, currentTimeMachineIndex + delta));
+  document.getElementById('tm_scrubber').value = next;
+  onTimeMachineScrub(next);
+}
+
+function rewindTimeMachineToStart() {
+  document.getElementById('tm_scrubber').value = 0;
+  onTimeMachineScrub(0);
+}
+
+function advanceTimeMachineToEnd() {
+  if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+  const end = currentTimeMachineBundle.replay_timeline.length - 1;
+  document.getElementById('tm_scrubber').value = end;
+  onTimeMachineScrub(end);
+}
+
+function toggleTimeMachinePlay() {
+  const btn = document.getElementById('btn_tm_play');
+  if (tmPlayInterval) {
+    clearInterval(tmPlayInterval);
+    tmPlayInterval = null;
+    if (btn) btn.textContent = '▶ Play';
+  } else {
+    if (!currentTimeMachineBundle || !currentTimeMachineBundle.replay_timeline) return;
+    const maxIdx = currentTimeMachineBundle.replay_timeline.length - 1;
+    if (currentTimeMachineIndex >= maxIdx) {
+      currentTimeMachineIndex = 0;
+      document.getElementById('tm_scrubber').value = 0;
+      onTimeMachineScrub(0);
+    }
+    if (btn) btn.textContent = '⏸ Pause';
+    tmPlayInterval = setInterval(() => {
+      if (currentTimeMachineIndex >= maxIdx) {
+        clearInterval(tmPlayInterval);
+        tmPlayInterval = null;
+        if (btn) btn.textContent = '▶ Play';
+      } else {
+        stepTimeMachine(1);
+      }
+    }, 700);
+  }
+}
+
+function downloadForensicEvidence() {
+  if (!currentModalEventIndex && currentModalEventIndex !== 0) return;
+  window.open(`/api/v1/forensics/${currentModalEventIndex}?download=true`, '_blank');
+  showToast('good', `Forensic Evidence Bundle for event #${currentModalEventIndex} downloaded`);
+}
+
+function copyTimeMachineFirewallRule() {
+  const code = document.getElementById('tm_firewall_rule');
+  if (code && navigator.clipboard) {
+    navigator.clipboard.writeText(code.textContent);
+    showToast('info', '📋 Firewall rule copied to clipboard');
+  }
+}
+
+// Close on outside click
+document.getElementById('timemachine_modal')?.addEventListener('click', e => {
+  if (e.target.classList.contains('modal-overlay')) closeTimeMachineModal();
+});
+
+// --- CHARTS SETUP ---
+function setupCharts() {
+  const ctx = document.getElementById('scoreChart').getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,0,220);
+  grad.addColorStop(0,'rgba(59,130,246,.3)');grad.addColorStop(1,'rgba(59,130,246,.0)');
+  chart = new Chart(ctx,{type:'line',data:{labels:[],datasets:[
+    {label:'Score',data:[],borderWidth:2,pointRadius:0,borderColor:'#3b82f6',backgroundColor:grad,fill:true,tension:.35},
+    {label:'Threshold',data:[],borderWidth:2,pointRadius:0,borderColor:'#f59e0b',borderDash:[6,4],fill:false}
+  ]},options:{animation:false,responsive:true,maintainAspectRatio:false,
+    interaction:{intersect:false,mode:'index'},
+    scales:{x:{display:false},y:{min:0,max:1,grid:{color:'rgba(99,130,190,.06)'},ticks:{color:'#64748b',font:{size:11}}}},
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}
+  }});
+  const colors = ['#3b82f6','#8b5cf6','#ef4444','#f59e0b','#10b981','#06b6d4','#ec4899','#6366f1'];
+  pieChart = new Chart(document.getElementById('pieChart'),{type:'doughnut',data:{labels:[],datasets:[{data:[],backgroundColor:colors,borderWidth:0,hoverOffset:6}]},
+    options:{responsive:true,maintainAspectRatio:false,cutout:'65%',plugins:{legend:{position:'right',labels:{color:'#94a3b8',padding:12,font:{size:11},usePointStyle:true,pointStyle:'circle'}},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',padding:10,cornerRadius:8}}}
+  });
+}
+
+// --- RADAR CHART ---
+async function loadRadar() {
+  try {
+    const r = await fetch('/api/feature_radar');
+    const j = await r.json();
+    if (!j.ok) return;
+    const ctx = document.getElementById('radarChart');
+    if (radarChart) radarChart.destroy();
+    radarChart = new Chart(ctx, {type:'radar',data:{labels:j.features.map(f=>f.replace('_',' ')),datasets:[{
+      label:'Feature Values',data:j.values,borderColor:'#3b82f6',backgroundColor:'rgba(59,130,246,.15)',borderWidth:2,pointBackgroundColor:'#3b82f6',pointRadius:3
+    }]},options:{responsive:true,maintainAspectRatio:false,scales:{r:{beginAtZero:true,max:1,grid:{color:'rgba(99,130,190,.08)'},pointLabels:{color:'#94a3b8',font:{size:10}},ticks:{display:false}}},
+      plugins:{legend:{display:false},tooltip:{backgroundColor:'rgba(12,20,37,.95)',borderColor:'rgba(99,130,190,.2)',borderWidth:1,titleColor:'#e2e8f0',bodyColor:'#94a3b8',cornerRadius:8}}}
+    });
+  } catch(e) { console.log('Radar load failed:', e); }
+}
+
+// --- HEATMAP ---
+async function loadHeatmap() {
+  try {
+    const r = await fetch('/api/timeline_heatmap?days=7');
+    const j = await r.json();
+    if (!j.ok) return;
+    const c = document.getElementById('heatmap_container');
+    const maxVal = Math.max(...j.days.flatMap(d => d.hours), 1);
+    let html = '<div style="display:flex;gap:4px;flex-direction:column">';
+    for (const day of j.days) {
+      html += `<div style="display:flex;align-items:center;gap:4px"><span style="font-size:10px;color:var(--text3);width:30px;text-align:right">${day.label}</span>`;
+      for (let h = 0; h < 24; h++) {
+        const v = day.hours[h] || 0;
+        const lvl = v === 0 ? 0 : v <= maxVal*0.2 ? 1 : v <= maxVal*0.4 ? 2 : v <= maxVal*0.6 ? 3 : v <= maxVal*0.8 ? 4 : 5;
+        html += `<div class="heatmap-cell lvl-${lvl}" title="${day.date} ${h}:00 — ${v} attacks"></div>`;
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<div class="heatmap-labels" style="margin-left:34px">';
+    for (let h = 0; h < 24; h += 3) html += `<span style="width:${3*17}px">${h}:00</span>`;
+    html += '</div>';
+    c.innerHTML = html;
+  } catch(e) { console.log('Heatmap load failed:', e); }
+}
+
+// --- INTERACTIVE TOPOLOGY & DEVICE TELEMETRY ---
+let topoFilter = 'all';
+let currentSelectedDevice = null;
+let hoveredDevice = null;
+let topoListenersAttached = false;
+
+function setTopoFilter(filter) {
+  topoFilter = filter;
+  ['all', 'iot', 'it', 'threats'].forEach(f => {
+    const el = document.getElementById(`topo_filter_${f}`);
+    if (el) {
+      if (f === filter) {
+        el.style.background = 'var(--primary)';
+        el.style.color = '#fff';
+        el.style.fontWeight = '700';
+      } else {
+        el.style.background = 'transparent';
+        el.style.color = 'var(--text2)';
+        el.style.fontWeight = '500';
+      }
+    }
+  });
+}
+
+function openDeviceModal(dev) {
+  if (!dev) return;
+  currentSelectedDevice = dev;
+  const ip = dev.ip || dev.id;
+  const isBlocked = dev.state === 'BLOCKED' || dev.blocked;
+  const isGrace = dev.state === 'GRACE';
+
+  const nameEl = document.getElementById('dev_name');
+  const ipEl = document.getElementById('dev_ip');
+  const badgeEl = document.getElementById('dev_state_badge');
+  const typeEl = document.getElementById('dev_classification');
+  const geoEl = document.getElementById('dev_geo');
+  const ispEl = document.getElementById('dev_isp');
+  const threatEl = document.getElementById('dev_threat');
+  const btnQuarantine = document.getElementById('btn_dev_quarantine');
+  const btnUnblock = document.getElementById('btn_dev_unblock');
+
+  if (nameEl) nameEl.textContent = dev.label || `Device ${ip}`;
+  if (ipEl) ipEl.textContent = `IP: ${ip} · Entity: ${dev.id}`;
+  
+  if (badgeEl) {
+    if (isBlocked) {
+      badgeEl.className = 'tag t-bad';
+      badgeEl.textContent = 'QUARANTINED (BLOCKED)';
+    } else if (isGrace) {
+      badgeEl.className = 'tag t-warn';
+      badgeEl.textContent = 'GRACE PERIOD (WARNING)';
+    } else {
+      badgeEl.className = 'tag t-ok';
+      badgeEl.textContent = 'BENIGN (HEALTHY)';
+    }
+  }
+
+  if (typeEl) {
+    const isIoT = dev.type === 'iot' || dev.type === 'router' || dev.type === 'firewall';
+    typeEl.textContent = `${isIoT ? '📡 IoT Device' : '💻 IT Endpoint'} (${(dev.type || 'unknown').toUpperCase()})`;
+    typeEl.style.color = isIoT ? '#10b981' : '#06b6d4';
+  }
+
+  if (geoEl) {
+    const flag = dev.flag || '🏠';
+    const cName = dev.country_name || (dev.country === 'LAN' ? 'Private Network' : dev.country || 'Unknown');
+    geoEl.textContent = `${flag} ${cName}`;
+  }
+
+  if (ispEl) {
+    ispEl.textContent = dev.isp || (dev.country === 'LAN' ? 'Internal Gateway / Subnet' : 'Autonomous Network');
+  }
+
+  if (threatEl) {
+    if (dev.threat) {
+      threatEl.textContent = `🚨 ${dev.threat}`;
+      threatEl.style.color = '#ef4444';
+    } else if (dev.abuse_score && dev.abuse_score > 0) {
+      threatEl.textContent = `⚠️ Abuse Confidence: ${dev.abuse_score}%`;
+      threatEl.style.color = '#f59e0b';
+    } else {
+      threatEl.textContent = '✅ Clean / Normal Profile';
+      threatEl.style.color = '#10b981';
+    }
+  }
+
+  if (btnQuarantine && btnUnblock) {
+    if (isBlocked) {
+      btnQuarantine.style.opacity = '0.5';
+      btnQuarantine.disabled = true;
+      btnUnblock.style.opacity = '1.0';
+      btnUnblock.disabled = false;
+    } else {
+      btnQuarantine.style.opacity = '1.0';
+      btnQuarantine.disabled = false;
+      btnUnblock.style.opacity = '0.5';
+      btnUnblock.disabled = true;
+    }
+  }
+
+  const modal = document.getElementById('device_modal');
+  if (modal) modal.classList.add('open');
+}
+
+function closeDeviceModal() {
+  const modal = document.getElementById('device_modal');
+  if (modal) modal.classList.remove('open');
+  currentSelectedDevice = null;
+}
+
+async function quarantineCurrentDevice() {
+  if (!currentSelectedDevice || !currentSelectedDevice.ip) return;
+  const ip = currentSelectedDevice.ip;
+  try {
+    const res = await fetch('/api/block', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ip: ip, severity: 'hard', reason: 'Operator Manual Quarantine'}),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast(`🚫 Quarantine rule applied for ${ip}`, 'bad');
+      closeDeviceModal();
+      await loadTopology();
+    } else {
+      showToast(`Failed to quarantine: ${j.error || 'Unknown error'}`, 'bad');
+    }
+  } catch (err) {
+    showToast(`Block error: ${err}`, 'bad');
+  }
+}
+
+async function unblockCurrentDevice() {
+  if (!currentSelectedDevice || !currentSelectedDevice.ip) return;
+  const ip = currentSelectedDevice.ip;
+  try {
+    const res = await fetch('/api/unblock', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ip: ip}),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast(`✅ Host ${ip} unblocked and restored`, 'ok');
+      closeDeviceModal();
+      await loadTopology();
+    } else {
+      showToast(`Failed to unblock: ${j.error || 'Unknown error'}`, 'bad');
+    }
+  } catch (err) {
+    showToast(`Unblock error: ${err}`, 'bad');
+  }
+}
+
+function initTopology() {
+  const canvas = document.getElementById('topoCanvas');
+  if (!canvas) return;
+  const wrap = canvas.parentElement;
+  canvas.width = wrap.clientWidth * 2;
+  canvas.height = wrap.clientHeight * 2;
+  canvas.style.width = wrap.clientWidth + 'px';
+  canvas.style.height = wrap.clientHeight + 'px';
+
+  if (!topoListenersAttached) {
+    topoListenersAttached = true;
+    canvas.addEventListener('mousemove', (e) => {
+      if (!topoData || !topoData.devices) return;
+      const rect = canvas.getBoundingClientRect();
+      const W = canvas.width, H = canvas.height;
+      const mx = ((e.clientX - rect.left) / rect.width) * W;
+      const my = ((e.clientY - rect.top) / rect.height) * H;
+
+      let hit = null;
+      for (const d of topoData.devices) {
+        if (!shouldRenderDevice(d)) continue;
+        const dx = d.x * W, dy = d.y * H;
+        const dist = Math.hypot(mx - dx, my - dy);
+        if (dist <= 30) {
+          hit = d;
+          break;
+        }
+      }
+      hoveredDevice = hit;
+      canvas.style.cursor = hit ? 'pointer' : 'default';
+    });
+
+    canvas.addEventListener('click', (e) => {
+      if (hoveredDevice) {
+        openDeviceModal(hoveredDevice);
+      }
+    });
+  }
+
+  loadTopology();
+}
+
+function shouldRenderDevice(d) {
+  if (topoFilter === 'all') return true;
+  if (topoFilter === 'iot') return d.type === 'iot' || d.type === 'router' || d.type === 'firewall';
+  if (topoFilter === 'it') return d.type === 'it' || d.type === 'router' || d.type === 'firewall';
+  if (topoFilter === 'threats') return d.state === 'BLOCKED' || d.state === 'GRACE' || Boolean(d.threat);
+  return true;
+}
+
+let topoParticles = [];
+async function loadTopology() {
+  try {
+    const r = await fetch('/api/topology');
+    topoData = await r.json();
+    if (topoData.ok) {
+      topoParticles = [];
+      updateTopologySummary(topoData.summary);
+      drawTopology();
+    }
+  } catch(e) { console.log('Topology load failed:', e); }
+}
+
+function updateTopologySummary(sum) {
+  if (!sum) return;
+  const setTxt = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = val !== undefined ? val : 0;
+  };
+  setTxt('topo_count_total', sum.total_nodes);
+  setTxt('topo_count_iot', sum.iot_count);
+  setTxt('topo_count_it', sum.it_count);
+  setTxt('topo_count_grace', sum.grace_count);
+  setTxt('topo_count_blocked', sum.blocked_count);
+}
+
+function drawTopology() {
+  const canvas = document.getElementById('topoCanvas');
+  if (!canvas || !topoData) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const deviceMap = {};
+  topoData.devices.forEach(d => { deviceMap[d.id] = d; });
+
+  // Draw connections
+  for (const conn of topoData.connections) {
+    const from = deviceMap[conn.from], to = deviceMap[conn.to];
+    if (!from || !to) continue;
+    if (!shouldRenderDevice(from) || !shouldRenderDevice(to)) continue;
+
+    const fx = from.x * W, fy = from.y * H, tx = to.x * W, ty = to.y * H;
+    ctx.beginPath();
+    ctx.moveTo(fx, fy); ctx.lineTo(tx, ty);
+
+    const isAttacked = conn.attack || to.state === 'BLOCKED' || to.state === 'GRACE';
+    ctx.strokeStyle = to.state === 'BLOCKED' ? 'rgba(239,68,68,0.6)' : isAttacked ? 'rgba(245,158,11,0.5)' : 'rgba(99,130,190,0.12)';
+    ctx.lineWidth = isAttacked ? 3 : 1.5;
+    ctx.stroke();
+
+    // Add glowing particle on active connection
+    if (isAttacked && Math.random() < 0.20) {
+      const pColor = to.state === 'BLOCKED' ? 'rgba(239,68,68,' : 'rgba(245,158,11,';
+      topoParticles.push({fx, fy, tx, ty, progress: 0, speed: 0.009 + Math.random() * 0.012, color: pColor});
+    }
+  }
+
+  // Draw dynamic particles
+  topoParticles = topoParticles.filter(p => p.progress < 1);
+  for (const p of topoParticles) {
+    p.progress += p.speed;
+    const x = p.fx + (p.tx - p.fx) * p.progress;
+    const y = p.fy + (p.ty - p.fy) * p.progress;
+    const col = p.color || 'rgba(239,68,68,';
+    ctx.beginPath();
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
+    ctx.fillStyle = `${col}${1 - p.progress})`;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, 8, 0, Math.PI * 2);
+    ctx.fillStyle = `${col}${0.25 * (1 - p.progress)})`;
+    ctx.fill();
+  }
+
+  // Draw device nodes with real-time state rings
+  const typeColors = {router:'#3b82f6',firewall:'#8b5cf6',iot:'#10b981',it:'#06b6d4'};
+  const typeIcons = {router:'🌐',firewall:'🛡️',iot:'📡',it:'💻'};
+
+  for (const d of topoData.devices) {
+    if (!shouldRenderDevice(d)) continue;
+    const x = d.x * W, y = d.y * H;
+    let baseColor = typeColors[d.type] || '#94a3b8';
+    let ringRadius = 22;
+    let ringColor = 'rgba(59,130,246,0.15)';
+    let borderStroke = baseColor;
+    let badgeIcon = typeIcons[d.type] || '•';
+
+    // Real-Time Traffic States
+    if (d.state === 'BLOCKED') {
+      // Red Pulsing Ring
+      const pulse = Math.sin(Date.now() / 150) * 5;
+      ringRadius = 24 + pulse;
+      ringColor = 'rgba(239,68,68,0.35)';
+      borderStroke = '#ef4444';
+      badgeIcon = '🚫';
+    } else if (d.state === 'GRACE') {
+      // Amber Warning Ring
+      const pulse = Math.sin(Date.now() / 250) * 3;
+      ringRadius = 23 + pulse;
+      ringColor = 'rgba(245,158,11,0.25)';
+      borderStroke = '#f59e0b';
+      badgeIcon = '⚠️';
+    } else {
+      // Benign Green / Cyan Ring
+      ringColor = baseColor.replace(')', ',0.12)').replace('rgb', 'rgba');
+      borderStroke = baseColor;
+    }
+
+    // Outer Glow / Pulse Ring
+    ctx.beginPath();
+    ctx.arc(x, y, ringRadius, 0, Math.PI * 2);
+    ctx.fillStyle = ringColor;
+    ctx.fill();
+
+    // Node Body
+    ctx.beginPath();
+    ctx.arc(x, y, 15, 0, Math.PI * 2);
+    ctx.fillStyle = hoveredDevice === d ? 'rgba(30,41,59,0.95)' : 'rgba(10,14,26,0.92)';
+    ctx.fill();
+    ctx.strokeStyle = borderStroke;
+    ctx.lineWidth = hoveredDevice === d ? 3.5 : 2;
+    ctx.stroke();
+
+    // Node Center Icon
+    ctx.font = '14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeIcon, x, y);
+
+    // Country Flag + Node Label
+    const flag = d.flag || '🏠';
+    ctx.font = '600 11px Inter, sans-serif';
+    ctx.fillStyle = d.state === 'BLOCKED' ? '#f87171' : d.state === 'GRACE' ? '#fbbf24' : '#cbd5e1';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${flag} ${d.label || d.id}`, x, y + 27);
+
+    // IP Subtitle
+    if (d.ip) {
+      ctx.font = '400 9px monospace';
+      ctx.fillStyle = '#64748b';
+      ctx.fillText(d.ip, x, y + 39);
+    }
+  }
+
+  // Draw Hover Tooltip
+  if (hoveredDevice) {
+    const hx = hoveredDevice.x * W, hy = hoveredDevice.y * H;
+    const ttText = `${hoveredDevice.flag || ''} ${hoveredDevice.label || hoveredDevice.id} [${hoveredDevice.state || 'BENIGN'}] - Click to Manage`;
+    ctx.font = '600 11px Inter, sans-serif';
+    const textW = ctx.measureText(ttText).width;
+    const pad = 8;
+    const boxX = Math.max(10, Math.min(W - textW - pad*2 - 10, hx - (textW + pad*2)/2));
+    const boxY = Math.max(10, hy - 48);
+
+    ctx.fillStyle = 'rgba(15,23,42,0.95)';
+    ctx.strokeStyle = 'rgba(56,189,248,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(boxX, boxY, textW + pad*2, 24, 6);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(ttText, boxX + pad, boxY + 12);
+  }
+
+  topoAnimFrame = requestAnimationFrame(drawTopology);
+}
+
+// --- TOP ATTACKERS ---
+async function loadTopAttackers() {
+  try {
+    const r = await fetch('/api/top_attackers');
+    const j = await r.json();
+    const el = document.getElementById('top_attackers');
+    if (!j.ok || !j.attackers.length) { el.innerHTML = '<div style="text-align:center;color:var(--text3);padding:20px;font-size:13px">No attack data yet</div>'; return; }
+    const max = j.attackers[0].count || 1;
+    el.innerHTML = j.attackers.map((a, i) =>
+      `<div class="attacker-row">
+        <div class="attacker-rank ${i<3?'top':''}">#${i+1}</div>
+        <div class="attacker-flag">${a.flag||'🌐'}</div>
+        <div class="attacker-ip">${a.ip}</div>
+        <div class="attacker-bar-wrap"><div class="attacker-bar" style="width:${(a.count/max)*100}%"></div></div>
+        <div class="attacker-count">${a.count}</div>
+        ${a.blocked?'<span class="tag t-bad" style="font-size:10px">BLOCKED</span>':''}
+      </div>`
+    ).join('');
+  } catch(e) {}
+}
+
+// --- DATA REFRESH ---
+async function refreshCounts() {
+  try {
+    const r = await fetch('/api/counts?window_minutes=60');
+    const j = await r.json();
+    animateValue(document.getElementById('mt_total'), j.total ?? 0);
+    animateValue(document.getElementById('mt_attacks'), j.attacks ?? 0);
+    animateValue(document.getElementById('mt_blocks'), j.blocks ?? 0);
+    // Detection rate
+    const rate = j.total > 0 ? ((j.attacks / j.total) * 100).toFixed(1) + '%' : '-';
+    document.getElementById('mt_rate').textContent = rate;
+    // Update gauge based on recent attack ratio
+    const attackRatio = j.total > 0 ? j.attacks / j.total : 0;
+    updateGauge(attackRatio);
+    // Update nav badge
+    const badge = document.getElementById('nav_attack_count');
+    if (j.attacks > 0) { badge.style.display = ''; badge.textContent = j.attacks; } else { badge.style.display = 'none'; }
+    // Sparklines
+    sparkHistory.total.push(j.total); sparkHistory.attacks.push(j.attacks); sparkHistory.blocks.push(j.blocks);
+    if (sparkHistory.total.length > 20) { sparkHistory.total.shift(); sparkHistory.attacks.shift(); sparkHistory.blocks.shift(); }
+    updateSpark('spark_total', sparkHistory.total, 'rgba(59,130,246,0.5)');
+    updateSpark('spark_attacks', sparkHistory.attacks, 'rgba(239,68,68,0.5)');
+    updateSpark('spark_blocks', sparkHistory.blocks, 'rgba(245,158,11,0.5)');
+    // Pie chart
+    if (j.class_counts) {
+      const entries = Object.entries(j.class_counts).sort((a,b) => b[1]-a[1]);
+      pieChart.data.labels = entries.map(e => e[0]);
+      pieChart.data.datasets[0].data = entries.map(e => e[1]);
+      pieChart.update('none');
+    }
+    // Chips
+    const catChips = document.getElementById('category_chips');
+    if (catChips && j.category_counts) {
+      const entries = Object.entries(j.category_counts).sort((a,b) => b[1]-a[1]);
+      catChips.innerHTML = entries.map(([n,c]) => `<span class="chip" style="background:rgba(239,68,68,0.14);border-color:rgba(239,68,68,0.35);color:#fca5a5;font-weight:600">⚡ ${n}: ${c}</span>`).join('') || '<span class="chip">No active threats</span>';
+    }
+    const chips = document.getElementById('class_chips');
+    if (chips && j.class_counts) {
+      const entries = Object.entries(j.class_counts).sort((a,b) => b[1]-a[1]);
+      chips.innerHTML = entries.map(([n,c]) => `<span class="chip">${n}: ${c}</span>`).join('') || '<span class="chip">No class data</span>';
+    }
+    const blockChips = document.getElementById('block_chips');
+    if (blockChips && j.block_breakdown) {
+      const entries = Object.entries(j.block_breakdown).sort((a,b) => b[1]-a[1]);
+      blockChips.innerHTML = entries.map(([n,c]) => `<span class="chip">${n}: ${c}</span>`).join('') || '<span class="chip">No blocks</span>';
+    }
+  } catch(e) {}
+}
+
+async function refreshEvents() {
+  try {
+    const q = lastTs ? ('?since_ts=' + encodeURIComponent(lastTs)) : '';
+    const r = await fetch('/api/events' + q);
+    const j = await r.json();
+    const list = j.events || [];
+    if (!list.length) return;
+    allEvents = allEvents.concat(list);
+    if (allEvents.length > 500) allEvents = allEvents.slice(-500);
+    renderTable();
+    // Chart update
+    for (const e of list) {
+      chartData.labels.push(iso(e.ts));
+      chartData.scores.push(e.score ?? 0);
+      chartData.thresholds.push(e.effective_threshold ?? null);
+    }
+    if (chartData.labels.length > 100) {
+      chartData.labels.splice(0, chartData.labels.length - 100);
+      chartData.scores.splice(0, chartData.scores.length - 100);
+      chartData.thresholds.splice(0, chartData.thresholds.length - 100);
+    }
+    chart.data.labels = chartData.labels;
+    chart.data.datasets[0].data = chartData.scores;
+    chart.data.datasets[1].data = chartData.thresholds;
+    chart.update('none');
+    // Track latest block timestamp
+    for (const e of list) {
+      if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
+        lastBlockTs = e.ts;
+      }
+    }
+    lastTs = list[list.length - 1].ts;
+  } catch(e) {}
+}
+
+// --- CONFIG ---
+async function loadConfig() {
+  try {
+    const j = await (await fetch('/api/config')).json();
+    const d = j.decision || {};
+    document.getElementById('ctl_threshold').value = d.threshold ?? 0.65;
+    document.getElementById('ctl_adaptive').checked = d.use_adaptive ?? false;
+    document.getElementById('ctl_grace').value = d.grace ?? 3;
+    document.getElementById('ctl_window').value = d.window ?? 5;
+    document.getElementById('ctl_cool').value = d.cooldown_sec ?? 30;
+    const b = document.getElementById('mode_badge');
+    if (d.dry_run) { b.textContent = 'DEMO'; b.className = 'mode-badge demo'; }
+    else { b.textContent = 'LIVE'; b.className = 'mode-badge live'; }
+    document.getElementById('mi_thr').textContent = d.threshold ?? '-';
+  } catch(e) {}
+  // Model info
+  try {
+    const m = await (await fetch('/api/model')).json();
+    if (m.model_type) document.getElementById('mi_type').textContent = m.model_type;
+  } catch {}
+  try {
+    const h = await (await fetch('/health')).json();
+    if (h.model) {
+      if (h.model.version) document.getElementById('mi_ver').textContent = 'v' + h.model.version;
+      if (h.model.roc_auc) document.getElementById('mi_auc').textContent = h.model.roc_auc;
+      if (h.model.features_count) document.getElementById('mi_feat').textContent = h.model.features_count;
+    }
+  } catch {}
+  try {
+    const e = await (await fetch('/api/v1/ensemble')).json();
+    if (e.ok) document.getElementById('mi_ens').textContent = e.strategy || '-';
+  } catch { document.getElementById('mi_ens').textContent = 'off'; }
+}
+
+async function saveConfig() {
+  const body = {decision:{
+    threshold: parseFloat(document.getElementById('ctl_threshold').value),
+    use_adaptive: document.getElementById('ctl_adaptive').checked,
+    grace: parseInt(document.getElementById('ctl_grace').value),
+    window: parseInt(document.getElementById('ctl_window').value),
+    cooldown_sec: parseInt(document.getElementById('ctl_cool').value)
+  }};
+  const j = await (await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})).json();
+  const msg = document.getElementById('save_msg');
+  msg.textContent = j.ok ? '✅ Config saved — restart decision loop to apply' : 'Error: ' + (j.error||'');
+  msg.style.color = j.ok ? 'var(--green)' : 'var(--red)';
+  setTimeout(() => msg.textContent = '', 3500);
+}
+
+// --- DEMO SIMULATION CONTROLS ---
+async function startDemo() {
+  try {
+    const res = await fetch('/api/demo/start', { method: 'POST' });
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(true);
+      showToast('info', '▶ Live traffic demo started');
+    }
+  } catch(e) {
+    showToast('info', 'Failed to start demo');
+  }
+}
+
+async function stopDemo() {
+  try {
+    const res = await fetch('/api/demo/stop', { method: 'POST' });
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(false);
+      showToast('info', '⏹ Live traffic demo paused');
+    }
+  } catch(e) {
+    showToast('info', 'Failed to stop demo');
+  }
+}
+
+async function checkDemoStatus() {
+  try {
+    const res = await fetch('/api/demo/status');
+    const j = await res.json();
+    if (j.ok) {
+      updateDemoUI(j.running);
+    }
+  } catch(e) {}
+}
+
+function updateDemoUI(isRunning) {
+  const badge = document.getElementById('demo_status_badge');
+  const btnStart = document.getElementById('btn_demo_start');
+  const btnStop = document.getElementById('btn_demo_stop');
+  if (isRunning) {
+    if (badge) { badge.className = 'tag t-ok'; badge.textContent = '● STREAMING'; }
+    if (btnStart) btnStart.style.display = 'none';
+    if (btnStop) btnStop.style.display = 'inline-flex';
+  } else {
+    if (badge) { badge.className = 'tag t-warn'; badge.textContent = '○ STOPPED'; }
+    if (btnStart) btnStart.style.display = 'inline-flex';
+    if (btnStop) btnStop.style.display = 'none';
+  }
+}
+
+async function launchAttack(type) {
+  const el = document.getElementById('sim_msg');
+  if (el) el.textContent = '⏳ Injecting ' + type.toUpperCase() + ' attack burst...';
+  try {
+    const res = await fetch('/api/demo/inject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: type })
+    });
+    const j = await res.json();
+    if (j.ok) {
+      if (el) el.innerHTML = `✅ <strong>${j.attack_type.toUpperCase()}</strong> burst injected. Decision loop is scoring.`;
+      showToast('attack', `⚡ Injected ${j.attack_type.toUpperCase()} attack burst`);
+    } else {
+      if (el) el.textContent = '❌ Error: ' + (j.error || 'Failed');
+    }
+    setTimeout(() => { if (el) el.textContent = ''; }, 5000);
+  } catch(err) {
+    if (el) el.textContent = '❌ Network error.';
+    setTimeout(() => { if (el) el.textContent = ''; }, 4000);
+  }
+}
+
+// --- CLOCK ---
+function tickClock() {
+  const t = new Date().toLocaleTimeString('en-GB', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  document.getElementById('clock').textContent = t;
+  const fc = document.getElementById('footer_clock');
+  if (fc) fc.textContent = new Date().toISOString().replace('T',' ').slice(0,19) + ' UTC';
+}
+
+// --- MAIN TICK ---
+async function tick() {
+  tickClock();
+  await refreshCounts();
+  await refreshEvents();
+  await checkDemoStatus();
+}
+// Federated Learning & Drift Status Helpers (Phase 6)
+async function loadFederatedStatus() {
+  try {
+    const res = await fetch('/api/v1/federated/status');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    const roundEl = document.getElementById('fed_round_num');
+    const hashEl = document.getElementById('fed_model_hash');
+    const nodeEl = document.getElementById('fed_node_count');
+    const badgeEl = document.getElementById('fed_drift_badge');
+    const psiEl = document.getElementById('fed_drift_psi');
+    const recEl = document.getElementById('fed_recommendation');
+
+    if (roundEl) roundEl.textContent = `Round ${data.round || 0}`;
+    if (hashEl) hashEl.textContent = `hash: ${data.global_model_hash || '-'}`;
+    if (nodeEl) nodeEl.textContent = `${data.total_nodes || 4} Active Nodes`;
+
+    const drift = data.drift_status || {};
+    if (badgeEl) {
+      if (drift.drift_detected) {
+        badgeEl.textContent = '🟡 Drift Detected';
+        badgeEl.style.color = 'var(--amber)';
+      } else {
+        badgeEl.textContent = '🟢 Fleet Stable';
+        badgeEl.style.color = 'var(--green)';
+      }
+    }
+    if (psiEl) psiEl.textContent = `Mean PSI: ${(drift.mean_psi || 0).toFixed(4)}`;
+    if (recEl) {
+      recEl.textContent = drift.recommendation || 'FLEET_STABLE';
+      recEl.style.color = drift.recommendation === 'TRIGGER_FEDERATED_SYNC' ? 'var(--amber)' : '#f8fafc';
+    }
+  } catch(e) {}
+}
+
+async function triggerFederatedRound() {
+  const btn = document.getElementById('btn_fed_round');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Training...'; }
+  try {
+    const res = await fetch('/api/v1/federated/round', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ epochs: 3, lr: 0.02, reason: 'dashboard_operator' }),
+    });
+    const j = await res.json();
+    if (j.ok) {
+      showToast('info', `FedAvg Round ${j.round_report.round} complete! Hash: ${j.round_report.global_model_hash}`);
+      loadFederatedStatus();
+    } else {
+      showToast('error', j.error || 'Federated round failed');
+    }
+  } catch(e) {
+    showToast('error', 'Network error triggering federated round');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Run FedAvg Round'; }
+  }
+}
+
+// Enterprise Phase 11: SOC Metrics & MITRE Heatmap Poller
+async function loadSocKpis() {
+  try {
+    const res = await fetch('/api/v1/soc/kpis');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.ok) return;
+
+    // MTTD
+    const mttdEl = document.getElementById('soc_mttd_val');
+    const mttdBadge = document.getElementById('soc_mttd_badge');
+    if (mttdEl) mttdEl.textContent = `${(data.mttd_ms || 0).toFixed(1)} ms`;
+    if (mttdBadge) {
+      if (data.mttd_sla_status === 'MET') {
+        mttdBadge.textContent = 'SLA MET';
+        mttdBadge.style.background = 'rgba(16,185,129,0.2)';
+        mttdBadge.style.color = '#10b981';
+      } else {
+        mttdBadge.textContent = 'BREACHED';
+        mttdBadge.style.background = 'rgba(239,68,68,0.2)';
+        mttdBadge.style.color = '#ef4444';
+      }
+    }
+
+    // MTTR
+    const mttrEl = document.getElementById('soc_mttr_val');
+    const mttrBadge = document.getElementById('soc_mttr_badge');
+    if (mttrEl) mttrEl.textContent = `${(data.mttr_ms || 0).toFixed(1)} ms`;
+    if (mttrBadge) {
+      if (data.mttr_sla_status === 'MET') {
+        mttrBadge.textContent = 'SLA MET';
+        mttrBadge.style.background = 'rgba(16,185,129,0.2)';
+        mttrBadge.style.color = '#10b981';
+      } else {
+        mttrBadge.textContent = 'BREACHED';
+        mttrBadge.style.background = 'rgba(239,68,68,0.2)';
+        mttrBadge.style.color = '#ef4444';
+      }
+    }
+
+    // Audit Ledger
+    const auditEl = document.getElementById('soc_audit_val');
+    const auditBadge = document.getElementById('soc_audit_chain_badge');
+    if (auditEl && auditBadge) {
+      if (data.audit_chain_status === 'VERIFIED') {
+        auditBadge.textContent = 'VERIFIED';
+        auditBadge.style.background = 'rgba(16,185,129,0.2)';
+        auditBadge.style.color = '#10b981';
+        auditEl.style.color = '#10b981';
+      } else {
+        auditBadge.textContent = 'COMPROMISED';
+        auditBadge.style.background = 'rgba(239,68,68,0.2)';
+        auditBadge.style.color = '#ef4444';
+        auditEl.style.color = '#ef4444';
+      }
+    }
+
+    // Fleet Immunity
+    const immVal = document.getElementById('soc_immunity_val');
+    const immBadge = document.getElementById('soc_immunity_badge');
+    if (immVal) {
+      immVal.textContent = `${(data.fleet_immunity_index || 0).toFixed(1)}%`;
+      immVal.style.color = data.fleet_immunity_rating === 'OPTIMAL' ? '#10b981' : (data.fleet_immunity_rating === 'STABLE' ? '#f59e0b' : '#ef4444');
+    }
+    if (immBadge) {
+      immBadge.textContent = data.fleet_immunity_rating || 'OPTIMAL';
+      const c = data.fleet_immunity_rating === 'OPTIMAL' ? '#10b981' : (data.fleet_immunity_rating === 'STABLE' ? '#f59e0b' : '#ef4444');
+      immBadge.style.color = c;
+      immBadge.style.background = `${c}33`;
+    }
+
+    // Hardware XDP Drops & Blocks
+    const xdpVal = document.getElementById('soc_xdp_val');
+    const blocksSub = document.getElementById('soc_blocks_sub');
+    if (xdpVal) xdpVal.textContent = `${(data.xdp_hardware_drops || 0).toLocaleString()} pkts`;
+    if (blocksSub) blocksSub.textContent = `Active blocks: ${data.active_blocks_count || 0}`;
+
+    // MITRE ATT&CK Matrix
+    const mitre = data.mitre_matrix || {};
+    const totEl = document.getElementById('mitre_total_mapped');
+    const actTacticsEl = document.getElementById('mitre_active_tactics');
+    if (totEl) totEl.textContent = mitre.total_mapped_threats || 0;
+    if (actTacticsEl) actTacticsEl.textContent = `${mitre.active_tactics_count || 0} / 6`;
+
+    const tactics = (mitre && mitre.tactics) ? mitre.tactics : {};
+    const tacticKeys = ['TA0043', 'TA0001', 'TA0002', 'TA0006', 'TA0011', 'TA0040'];
+    tacticKeys.forEach(tid => {
+      const t = tactics[tid] || { count: 0, techniques: [] };
+      const colEl = document.getElementById(`mitre_col_${tid}`);
+      const cntEl = document.getElementById(`mitre_cnt_${tid}`);
+      const techEl = document.getElementById(`mitre_tech_${tid}`);
+
+      if (cntEl) {
+        cntEl.textContent = t.count || 0;
+        if (t.count > 0) {
+          cntEl.style.background = t.color || '#ef4444';
+          cntEl.style.color = '#ffffff';
+        } else {
+          cntEl.style.background = '#1e293b';
+          cntEl.style.color = '#94a3b8';
+        }
+      }
+
+      if (colEl) {
+        if (t.count > 0) {
+          colEl.classList.add('mitre-col-active');
+        } else {
+          colEl.classList.remove('mitre-col-active');
+        }
+      }
+
+      if (techEl) {
+        if (t.techniques && t.techniques.length > 0) {
+          techEl.innerHTML = t.techniques.slice(0, 3).map(tech => `<div style="margin-bottom:2px;font-weight:600;color:#e2e8f0">• ${tech}</div>`).join('');
+        } else {
+          techEl.textContent = 'No active threats';
+        }
+      }
+    });
+
+  } catch(e) {}
+}
+
+function exportExecutiveReport(fmt) {
+  const url = `/api/v1/reports/executive?format=${fmt || 'html'}`;
+  window.open(url, '_blank');
+}
+
+// Slower background refresh for secondary data
+async function slowTick() {
+  loadTopAttackers();
+  loadFederatedStatus();
+  loadSocKpis();
+}
+
+// --- EVENT LISTENERS ---
+document.getElementById('btn_save').onclick = saveConfig;
+document.getElementById('btn_download').onclick = () => window.location = '/api/download.csv';
+document.getElementById('btn_clear').onclick = async () => {
+  if (!confirm('Clear alerts log?')) return;
+  const j = await (await fetch('/api/clear',{method:'POST'})).json();
+  if (j.ok) { allEvents=[]; lastTs=0; document.getElementById('rows').innerHTML=''; chartData.labels=[]; chartData.scores=[]; chartData.thresholds=[]; chart.update(); showToast('info','Alerts cleared'); }
+};
+document.getElementById('btn_clear_all').onclick = async () => {
+  if (!confirm('Reset all data & state?')) return;
+  const j = await (await fetch('/api/clear_all',{method:'POST'})).json();
+  if (j.ok) { allEvents=[]; lastTs=0; document.getElementById('rows').innerHTML=''; chartData.labels=[]; chartData.scores=[]; chartData.thresholds=[]; chart.update(); showToast('info','Full reset complete'); }
+};
+document.getElementById('flt_state').onchange = e => { fltState = e.target.value; renderTable(); };
+document.getElementById('flt_blocked').onchange = e => { fltBlockedOnly = !!e.target.checked; renderTable(); };
+document.getElementById('flt_text').oninput = e => { fltText = (e.target.value||'').trim().toLowerCase(); renderTable(); };
+
+// --- INIT ---
+setupCharts();
+loadConfig();
+tick();
+slowTick();
+setInterval(tick, 3000);
+setInterval(slowTick, 15000);
+
+// --- WEBSOCKET ---
+try {
+  const socket = io();
+  socket.on('connect', () => {
+    document.getElementById('sidebar_status_dot').className = 'status-dot';
+    document.getElementById('sidebar_status_text').textContent = 'Live (WebSocket)';
+  });
+  socket.on('disconnect', () => {
+    document.getElementById('sidebar_status_dot').className = 'status-dot warn';
+    document.getElementById('sidebar_status_text').textContent = 'Reconnecting...';
+  });
+  socket.on('new_alert', (e) => {
+    allEvents.push(e); if (allEvents.length > 500) allEvents.shift();
+    renderTable();
+    chartData.labels.push(iso(e.ts)); chartData.scores.push(e.score??0); chartData.thresholds.push(e.effective_threshold??null);
+    if (chartData.labels.length > 100) { chartData.labels.shift(); chartData.scores.shift(); chartData.thresholds.shift(); }
+    chart.update('none');
+    if (e.action && String(e.action).startsWith('BLOCK') && e.ts > lastBlockTs) {
+      lastBlockTs = e.ts;
+    }
+    lastTs = e.ts;
+    refreshCounts();
+    loadSocKpis();
+  });
+  socket.on('config_changed', () => loadConfig());
+} catch(err) {
+  document.getElementById('sidebar_status_dot').className = 'status-dot warn';
+  document.getElementById('sidebar_status_text').textContent = 'Polling mode';
+}
+</script>
+</body>
+</html>

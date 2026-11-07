@@ -14,12 +14,19 @@ Responsibilities:
 -----------------------------------------------------------------------------
 """
 
+import sys
 import json
 import time
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Optional
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 
 logger = logging.getLogger("iotguard.event_logger")
 
@@ -125,12 +132,7 @@ class EventLogger:
             evt["mitre"] = mitre
         else:
             try:
-                try:
-                    from playbooks import get_mitre_attack
-                except ImportError:
-                    import importlib
-                    _pb = importlib.import_module("scripts.3_inference.playbooks")
-                    get_mitre_attack = _pb.get_mitre_attack
+                from playbooks import get_mitre_attack
                 target_cat = attack_category or pred_class
                 if target_cat and str(target_cat).lower() not in ("benign", "normal"):
                     evt["mitre"] = get_mitre_attack(target_cat)
@@ -145,14 +147,10 @@ class EventLogger:
 
         # Enterprise Dual-Write Contract: Indexed Relational Storage Engine
         try:
-            try:
-                from storage_engine import get_storage_engine
-            except ImportError:
-                import importlib
-                _mod = importlib.import_module("scripts.9_utilities.storage_engine")
-                get_storage_engine = _mod.get_storage_engine
-            if get_storage_engine is not None:
-                get_storage_engine().insert_event(evt)
+            from storage_engine import get_storage_engine
+            engine = get_storage_engine()
+            if engine is not None:
+                engine.insert_event(evt)
         except Exception:
             pass  # Dual-write error must never disrupt stream scoring
 

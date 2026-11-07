@@ -2,8 +2,15 @@
 """
 Check original pcap.csv files and test them with the model.
 """
+import sys
 import pandas as pd
 from pathlib import Path
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 
 # Get all original pcap.csv files
 data_dir = Path("data")

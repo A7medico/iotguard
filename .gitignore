@@ -39,3 +39,8 @@ models/backup/
 # Local configs/secrets
 configs/*.local.yaml
 
+# Graphify build caches
+graphify-out/cache/
+graphify-out/converted/
+
+

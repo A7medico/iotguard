@@ -14,6 +14,7 @@ Responsibilities:
 """
 
 import os
+import sys
 import json
 import time
 import hashlib
@@ -22,17 +23,17 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 try:
     from storage_engine import get_storage_engine, BaseStorageEngine
 except ImportError:
-    try:
-        import importlib
-        _mod = importlib.import_module("scripts.9_utilities.storage_engine")
-        get_storage_engine = _mod.get_storage_engine
-        BaseStorageEngine = _mod.BaseStorageEngine
-    except ImportError:
-        get_storage_engine = None
-        BaseStorageEngine = None
+    get_storage_engine = None
+    BaseStorageEngine = None
 
 logger = logging.getLogger("iotguard.audit_ledger")
 

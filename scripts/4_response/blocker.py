@@ -51,18 +51,17 @@ import ipaddress
 
 logger = logging.getLogger("iotguard.blocker")
 
-import importlib
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 
 try:
     from ebpf_driver import EBPFBlocker, get_ebpf_blocker
 except ImportError:
-    try:
-        _mod = importlib.import_module("scripts.4_response.ebpf_driver")
-        EBPFBlocker = _mod.EBPFBlocker
-        get_ebpf_blocker = _mod.get_ebpf_blocker
-    except ImportError:
-        EBPFBlocker = None
-        get_ebpf_blocker = None
+    EBPFBlocker = None
+    get_ebpf_blocker = None
 
 ACTIVE_BLOCKS_FILE = Path("data/active_blocks.json")
 
@@ -456,14 +455,10 @@ def record_block(ip: str, severity: str = "hard", reason: str = "", dry_run: boo
 
     # Enterprise Dual-Write Contract: Relational Storage Engine
     try:
-        try:
-            from storage_engine import get_storage_engine
-        except ImportError:
-            import importlib
-            _mod = importlib.import_module("scripts.9_utilities.storage_engine")
-            get_storage_engine = _mod.get_storage_engine
-        if get_storage_engine is not None:
-            get_storage_engine().record_block(
+        from storage_engine import get_storage_engine
+        engine = get_storage_engine()
+        if engine is not None:
+            engine.record_block(
                 ip,
                 severity=severity,
                 reason=reason,
@@ -486,14 +481,10 @@ def record_unblock(ip: str, *args, **kwargs) -> None:
 
     # Enterprise Dual-Write Contract: Relational Storage Engine
     try:
-        try:
-            from storage_engine import get_storage_engine
-        except ImportError:
-            import importlib
-            _mod = importlib.import_module("scripts.9_utilities.storage_engine")
-            get_storage_engine = _mod.get_storage_engine
-        if get_storage_engine is not None:
-            get_storage_engine().record_unblock(ip)
+        from storage_engine import get_storage_engine
+        engine = get_storage_engine()
+        if engine is not None:
+            engine.record_unblock(ip)
     except Exception:
         pass
 

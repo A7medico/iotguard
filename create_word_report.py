@@ -6,6 +6,18 @@ Generates:
   3. project_documentation/SYSTEM_HANDOFF_FOR_ARGON.docx
 """
 import os
+import sys
+from pathlib import Path
+
+_scripts_dir = Path(__file__).resolve().parent / "scripts"
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+try:
+    from path_setup import configure_paths
+    configure_paths()
+except ImportError:
+    pass
+
 from docx import Document
 from docx.shared import Inches, Pt, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH

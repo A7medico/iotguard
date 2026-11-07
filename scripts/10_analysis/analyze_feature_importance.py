@@ -2,11 +2,18 @@
 """
 Analyze feature importance of the trained LightGBM model.
 """
+import sys
 import joblib
 import json
 import pandas as pd
 import numpy as np
 from pathlib import Path
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 # import matplotlib.pyplot as plt
 
 def analyze_model_importance():

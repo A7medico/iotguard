@@ -85,24 +85,21 @@ from event_logger import EventLogger
 try:
     from stream_reader import FastCSVStreamReader, AsyncSIEMDispatcher
 except ImportError:
-    try:
-        import importlib
-        _sr = importlib.import_module("scripts.3_inference.stream_reader")
-        FastCSVStreamReader = _sr.FastCSVStreamReader
-        AsyncSIEMDispatcher = _sr.AsyncSIEMDispatcher
-    except Exception:
-        FastCSVStreamReader = None
-        AsyncSIEMDispatcher = None
+    FastCSVStreamReader = None
+    AsyncSIEMDispatcher = None
 
 siem_dispatcher: Optional[AsyncSIEMDispatcher] = None
 
 # ── Import other pipeline components ────────────────────────────────────────
 from blocker import block_ip as blocker_block_ip
 
-try:
-    from api_dashboard import emit_new_alert
-except ImportError:
-    emit_new_alert = lambda x: None
+from event_bus import publish as bus_publish
+
+
+def emit_new_alert(alert_data: dict) -> None:
+    """Publish new alert event to the Layer 0 event bus."""
+    bus_publish("new_alert", alert_data)
+
 
 from explainer import RealTimeExplainer
 from threat_intel import ThreatIntel
@@ -536,13 +533,7 @@ def main() -> None:
                 # Auto Forensic Incident Snapshot Generation for HARD and KILL blocks
                 if str(response_type).lower() in ("hard", "kill"):
                     try:
-                        try:
-                            from forensic_snapshot import generate_and_save_snapshot
-                        except ImportError:
-                            import importlib
-                            _fs_mod = importlib.import_module("scripts.4_response.forensic_snapshot")
-                            generate_and_save_snapshot = _fs_mod.generate_and_save_snapshot
-
+                        from forensic_snapshot import generate_and_save_snapshot
                         snap = generate_and_save_snapshot(
                             event_index=int(idx),
                             trigger_row=row.to_dict() if hasattr(row, "to_dict") else dict(row),

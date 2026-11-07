@@ -33,6 +33,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 logger = logging.getLogger("iotguard.forensic_snapshot")
 
 # ── Canonical 13-Feature Schema ───────────────────────────────────────────────
@@ -99,24 +105,15 @@ def _get_audit_ledger():
         from audit_ledger import record_audit_event, get_audit_ledger
         return record_audit_event, get_audit_ledger
     except ImportError:
-        try:
-            import importlib
-            _mod = importlib.import_module("scripts.9_utilities.audit_ledger")
-            return _mod.record_audit_event, _mod.get_audit_ledger
-        except Exception:
-            return None, None
+        return None, None
 
 
 def _get_playbooks_module():
     try:
-        import playbooks
-        return playbooks
-    except ImportError:
-        try:
-            import importlib
-            return importlib.import_module("scripts.3_inference.playbooks")
-        except Exception:
-            return None
+        import importlib
+        return importlib.import_module("playbooks")
+    except Exception:
+        return None
 
 
 def _get_threat_intel():
@@ -124,12 +121,7 @@ def _get_threat_intel():
         from threat_intel import ThreatIntel
         return ThreatIntel()
     except ImportError:
-        try:
-            import importlib
-            _mod = importlib.import_module("scripts.6_threat_intel.threat_intel")
-            return _mod.ThreatIntel()
-        except Exception:
-            return None
+        return None
 
 
 def _get_storage_engine():
@@ -137,12 +129,7 @@ def _get_storage_engine():
         from storage_engine import get_storage_engine
         return get_storage_engine()
     except ImportError:
-        try:
-            import importlib
-            _mod = importlib.import_module("scripts.9_utilities.storage_engine")
-            return _mod.get_storage_engine()
-        except Exception:
-            return None
+        return None
 
 
 # ── Canonical JSON String Helper ─────────────────────────────────────────────
@@ -294,16 +281,17 @@ def compute_shap_attributions(
         if model_path.exists():
             clf = joblib.load(str(model_path))
             try:
-                from explainer import RealTimeExplainer
-            except ImportError:
                 import importlib
-                _exp_mod = importlib.import_module("scripts.3_inference.explainer")
-                RealTimeExplainer = _exp_mod.RealTimeExplainer
-            
-            row_df = pd.DataFrame([[features.get(c, 0.0) for c in SCHEMA_13_FEATURES]], columns=SCHEMA_13_FEATURES)
-            explainer = RealTimeExplainer(clf, SCHEMA_13_FEATURES)
-            if explainer.is_initialized:
-                contributions = explainer.get_contributions(row_df)
+                _exp_mod = importlib.import_module("explainer")
+                RealTimeExplainer = getattr(_exp_mod, "RealTimeExplainer", None)
+            except Exception:
+                RealTimeExplainer = None
+
+            if RealTimeExplainer is not None:
+                row_df = pd.DataFrame([[features.get(c, 0.0) for c in SCHEMA_13_FEATURES]], columns=SCHEMA_13_FEATURES)
+                explainer = RealTimeExplainer(clf, SCHEMA_13_FEATURES)
+                if explainer.is_initialized:
+                    contributions = explainer.get_contributions(row_df)
     except Exception as e:
         logger.debug(f"Direct SHAP model calculation note: {e}")
 

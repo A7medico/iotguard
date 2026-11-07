@@ -17,9 +17,16 @@ Responsibilities:
 
 import json
 import os
+import sys
 import logging
 from pathlib import Path
 from typing import Optional, Union, List, Tuple, Dict, Any
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 
 import numpy as np
 import pandas as pd
@@ -169,12 +176,7 @@ class ModelManager:
         try:
             from zero_day_engine import build_or_load_zero_day_engine
         except ImportError:
-            try:
-                import importlib
-                _zde = importlib.import_module("scripts.3_inference.zero_day_engine")
-                build_or_load_zero_day_engine = _zde.build_or_load_zero_day_engine
-            except Exception:
-                build_or_load_zero_day_engine = None
+            build_or_load_zero_day_engine = None
 
         unsup_meta = Path("models/unsup_meta.json")
         default_thr = 0.65

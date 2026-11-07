@@ -7,7 +7,24 @@
 #   - Windows: removes netsh rules prefixed IoTGuardBlock_.
 #   - Linux: deletes nftables table inet/iotguard if present.
 # -----------------------------------------------------------------------------
-import os, subprocess, shutil, json
+import os
+import sys
+import subprocess
+import shutil
+import json
+from pathlib import Path
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
+try:
+    from blocker import get_active_blocks, unblock_ip
+except ImportError:
+    get_active_blocks = lambda: []
+    unblock_ip = lambda ip: (False, "blocker not found")
 
 def run(cmd): 
     return subprocess.run(cmd, capture_output=True, text=True)

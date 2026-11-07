@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import io
 import os
+import sys
 import queue
 import logging
 import threading
@@ -18,6 +19,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
+
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
 
 logger = logging.getLogger("iotguard.stream_reader")
 
@@ -174,13 +181,8 @@ class AsyncSIEMDispatcher:
         try:
             from siem_exporter import send_syslog
         except ImportError:
-            try:
-                import importlib
-                _mod = importlib.import_module("scripts.4_response.siem_exporter")
-                send_syslog = _mod.send_syslog
-            except Exception:
-                logger.error("Failed to import send_syslog from siem_exporter")
-                return
+            logger.error("Failed to import send_syslog from siem_exporter")
+            return
 
         while not self._stop_event.is_set():
             try:

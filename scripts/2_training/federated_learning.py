@@ -46,6 +46,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
 import pandas as pd
 
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 logger = logging.getLogger("iotguard.federated")
 
 # ── 13-Feature Schema Invariant ──────────────────────────────────────────────
@@ -506,14 +512,7 @@ class FederatedCoordinator:
     def _check_drift_summary(self) -> Dict[str, Any]:
         """Query feature drift detector if available."""
         try:
-            # Import drift module dynamically
-            try:
-                from check_feature_drift import FeatureDriftDetector
-            except ImportError:
-                import importlib
-                _mod = importlib.import_module("scripts.10_analysis.check_feature_drift")
-                FeatureDriftDetector = _mod.FeatureDriftDetector
-
+            from check_feature_drift import FeatureDriftDetector
             detector = FeatureDriftDetector()
             res = detector.check_drift("data/features.csv", sample_size=1000)
             return {

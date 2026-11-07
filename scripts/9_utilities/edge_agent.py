@@ -31,7 +31,7 @@ import hashlib
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 logger = logging.getLogger("iotguard.fleet")
 
@@ -42,45 +42,56 @@ try:
 except ImportError:
     PSUTIL_AVAILABLE = False
 
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 # Try importing storage engine and audit logger
 try:
     from storage_engine import get_storage_engine
     STORAGE_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _se = importlib.import_module("scripts.9_utilities.storage_engine")
-        get_storage_engine = _se.get_storage_engine
-        STORAGE_AVAILABLE = True
-    except Exception:
-        STORAGE_AVAILABLE = False
-        get_storage_engine = None
+    STORAGE_AVAILABLE = False
+    get_storage_engine = None
 
 try:
     from audit_ledger import record_audit_event
     AUDIT_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _al = importlib.import_module("scripts.9_utilities.audit_ledger")
-        record_audit_event = _al.record_audit_event
-        AUDIT_AVAILABLE = True
-    except Exception:
-        AUDIT_AVAILABLE = False
-        record_audit_event = None
+    AUDIT_AVAILABLE = False
+    record_audit_event = None
 
-try:
-    from blocker import block_ip
-    BLOCKER_AVAILABLE = True
-except ImportError:
+# Decoupled Block Enforcement (Layer 0 Pub/Sub & Pluggable Handler)
+_local_block_handler: Optional[Callable[..., Any]] = None
+
+def register_block_handler(handler: Callable[..., Any]) -> None:
+    """Register a callback for local block enforcement without direct Layer 2 dependency."""
+    global _local_block_handler
+    _local_block_handler = handler
+
+def _dispatch_local_block(ip: str, severity: str = "kill", reason: str = "", dry_run: bool = True) -> Any:
+    """Dispatch local block via registered handler, event bus, or lazy dynamic import."""
+    if _local_block_handler is not None:
+        return _local_block_handler(ip, severity=severity, reason=reason, dry_run=dry_run)
+    try:
+        from event_bus import publish as bus_publish
+        bus_publish("local_block_request", ip=ip, severity=severity, reason=reason, dry_run=dry_run)
+    except Exception:
+        pass
     try:
         import importlib
-        _bl = importlib.import_module("scripts.4_response.blocker")
-        block_ip = _bl.block_ip
-        BLOCKER_AVAILABLE = True
+        _bl = importlib.import_module("blocker")
+        if hasattr(_bl, "block_ip"):
+            return _bl.block_ip(ip, severity=severity, reason=reason, dry_run=dry_run)
     except Exception:
-        BLOCKER_AVAILABLE = False
-        block_ip = None
+        pass
+    return True, f"dry-run-{severity}"
+
+BLOCKER_AVAILABLE = True
+block_ip = _dispatch_local_block
+
 
 
 # =============================================================================

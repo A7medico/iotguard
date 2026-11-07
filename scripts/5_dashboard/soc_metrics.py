@@ -24,45 +24,32 @@ from datetime import datetime, timezone
 from collections import deque
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-# Handle imports gracefully across direct and package invocation
+_scripts_dir = Path(__file__).resolve().parent.parent
+if str(_scripts_dir) not in sys.path:
+    sys.path.insert(0, str(_scripts_dir))
+from path_setup import configure_paths
+configure_paths()
+
 try:
     from storage_engine import get_storage_engine
     STORAGE_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _se = importlib.import_module("scripts.9_utilities.storage_engine")
-        get_storage_engine = _se.get_storage_engine
-        STORAGE_AVAILABLE = True
-    except Exception:
-        STORAGE_AVAILABLE = False
-        get_storage_engine = None
+    STORAGE_AVAILABLE = False
+    get_storage_engine = None
 
 try:
     from audit_ledger import verify_audit_ledger
     AUDIT_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _al = importlib.import_module("scripts.9_utilities.audit_ledger")
-        verify_audit_ledger = _al.verify_audit_ledger
-        AUDIT_AVAILABLE = True
-    except Exception:
-        AUDIT_AVAILABLE = False
-        verify_audit_ledger = lambda *a, **k: (True, "AUDIT_UNAVAILABLE", None)
+    AUDIT_AVAILABLE = False
+    verify_audit_ledger = lambda *a, **k: (True, "AUDIT_UNAVAILABLE", None)
 
 try:
     from edge_agent import get_fleet_control_plane
     FLEET_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _ea = importlib.import_module("scripts.9_utilities.edge_agent")
-        get_fleet_control_plane = _ea.get_fleet_control_plane
-        FLEET_AVAILABLE = True
-    except Exception:
-        FLEET_AVAILABLE = False
-        get_fleet_control_plane = None
+    FLEET_AVAILABLE = False
+    get_fleet_control_plane = None
 
 
 def get_fleet_nodes() -> List[Dict[str, Any]]:
@@ -80,29 +67,16 @@ try:
     from blocker import get_driver_telemetry, get_active_blocks
     BLOCKER_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _bl = importlib.import_module("scripts.4_response.blocker")
-        get_driver_telemetry = _bl.get_driver_telemetry
-        get_active_blocks = _bl.get_active_blocks
-        BLOCKER_AVAILABLE = True
-    except Exception:
-        BLOCKER_AVAILABLE = False
-        get_driver_telemetry = lambda: {"total_xdp_drops": 0, "active_driver": "none"}
-        get_active_blocks = lambda: []
+    BLOCKER_AVAILABLE = False
+    get_driver_telemetry = lambda: {"total_xdp_drops": 0, "active_driver": "none"}
+    get_active_blocks = lambda: []
 
 try:
     from playbooks import MITRE_ATTACK_MAP
     PLAYBOOKS_AVAILABLE = True
 except ImportError:
-    try:
-        import importlib
-        _pb = importlib.import_module("scripts.3_inference.playbooks")
-        MITRE_ATTACK_MAP = _pb.MITRE_ATTACK_MAP
-        PLAYBOOKS_AVAILABLE = True
-    except Exception:
-        PLAYBOOKS_AVAILABLE = False
-        MITRE_ATTACK_MAP = {}
+    PLAYBOOKS_AVAILABLE = False
+    MITRE_ATTACK_MAP = {}
 
 
 # =============================================================================
